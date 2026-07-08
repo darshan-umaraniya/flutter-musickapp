@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:musicapp/Screens/homescreen.dart';
+import 'package:musicapp/Screens/GoogleSignInScreen.dart';
 import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -53,35 +53,44 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
+
     try {
+      debugPrint("Starting Google Sign-In...");
+
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
 
+      debugPrint("googleUser = $googleUser");
+
       if (googleUser == null) {
+        debugPrint("Returned NULL");
         setState(() => _isLoading = false);
-        return; // User cancelled
+        return;
       }
 
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      debugPrint("Email = ${googleUser.email}");
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Google Sign-In Successful')),
+        SnackBar(content: Text('Signed in as ${googleUser.email}')),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
       );
     } catch (e) {
+      debugPrint("Error: $e");
+
       if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -245,6 +254,32 @@ class _LoginScreenState extends State<LoginScreen> {
                         label: Text(
                           _isLoading ? 'Signing in...' : 'Sign in with Google',
                           style: TextStyle(color: textColor),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const GoogleSignInScreen(),
+                          ),
+                        );
+                      },
+                      child: RichText(
+                        text: TextSpan(
+                          text: "Don't have an account? ",
+                          style: TextStyle(color: subtitleColor),
+                          children: [
+                            TextSpan(
+                              text: "Sign Up",
+                              style: const TextStyle(
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

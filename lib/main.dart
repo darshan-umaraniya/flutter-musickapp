@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musicapp/Screens/loginscreen.dart';
 import 'package:musicapp/Theme/theme_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:musicapp/theme/app_theme.dart';
@@ -29,7 +30,7 @@ class MyApp extends StatelessWidget {
       themeMode: themeProvider.themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      home: const HomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }

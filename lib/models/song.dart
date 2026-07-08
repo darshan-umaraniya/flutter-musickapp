@@ -4,6 +4,7 @@ class Song {
   final String artist;
   final String duration;
   final String genre;
+  final String url;
   bool isFavorite;
 
   Song({
@@ -12,6 +13,7 @@ class Song {
     required this.artist,
     required this.duration,
     required this.genre,
+    required this.url,
     this.isFavorite = false,
   });
 }

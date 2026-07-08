@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musicapp/Screens/SongPlayerScreen.dart';
 import 'package:provider/provider.dart';
 import 'package:musicapp/Screens/FavoriteScreen.dart';
 import 'package:musicapp/Screens/LibraryScreen.dart';
@@ -136,12 +137,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            "Good Evening 👋",
-                            style: AppTheme.subtitle.copyWith(
-                              color: subtitleColor,
-                            ),
-                          ),
                           const SizedBox(height: 4),
                           Text(
                             "Discover Music",
@@ -282,7 +277,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           final song = musicProvider.recentlyPlayed[index];
                           final isCurrent = currentSong?.id == song.id;
                           return GestureDetector(
-                            onTap: () => musicProvider.playSong(song),
+                            onTap: () {
+                              musicProvider.playSong(song);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SongPlayerScreen(),
+                                ),
+                              );
+                            },
                             child: Container(
                               width: 145,
                               margin: const EdgeInsets.only(right: 15),
@@ -390,9 +393,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: currentSong == null
                 ? null
                 : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Now playing: ${currentSong.title}'),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SongPlayerScreen(),
                       ),
                     );
                   },
@@ -534,7 +538,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            onTap: () => musicProvider.playSong(song),
+            onTap: () {
+              musicProvider.playSong(song);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SongPlayerScreen()),
+              );
+            },
             leading: CircleAvatar(
               backgroundColor: AppTheme.primary,
               child: Icon(
