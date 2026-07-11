@@ -3,21 +3,15 @@ import 'package:musicapp/Theme/theme_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:musicapp/Screens/FavoriteScreen.dart';
 import 'package:musicapp/Screens/LibraryScreen.dart';
-import 'package:musicapp/Screens/homescreen.dart';
 import '../theme/app_theme.dart';
 import '../providers/music_provider.dart';
+import '../widgets/app_bottom_bar.dart';
+import '../widgets/confirm_dialog.dart';
 
-class ProfileScreen extends StatefulWidget {
+class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends State<ProfileScreen> {
-  int currentIndex = 3;
-
-  Widget statCard(String value, String label) {
+  Widget _statCard(BuildContext context, String value, String label) {
     final textColor = AppTheme.text(context);
     final subtitleColor = AppTheme.subtitleColor(context);
     return Expanded(
@@ -29,17 +23,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             Text(value, style: AppTheme.subHeading.copyWith(color: textColor)),
             const SizedBox(height: 5),
-            Text(
-              label,
-              style: AppTheme.subtitle.copyWith(color: subtitleColor),
-            ),
+            Text(label, style: AppTheme.subtitle.copyWith(color: subtitleColor)),
           ],
         ),
       ),
     );
   }
 
-  Widget menuTile(
+  Widget _menuTile(
+    BuildContext context,
     IconData icon,
     Color color,
     String title, {
@@ -59,80 +51,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Icon(icon, color: color),
           ),
           title: Text(title, style: AppTheme.title.copyWith(color: textColor)),
-          trailing:
-              trailing ??
-              Icon(
-                Icons.arrow_forward_ios,
-                color: AppTheme.subtitleColor(context),
-                size: 16,
-              ),
+          trailing: trailing ??
+              Icon(Icons.arrow_forward_ios, color: AppTheme.subtitleColor(context), size: 16),
         ),
       ),
     );
   }
 
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("$feature — coming soon")));
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$feature — coming soon")));
   }
 
-  void _confirmLogout() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        final textColor = AppTheme.text(dialogContext);
-        return AlertDialog(
-          backgroundColor: AppTheme.card(dialogContext),
-          shape: RoundedRectangleBorder(borderRadius: AppTheme.radius18),
-          title: Text("Logout", style: TextStyle(color: textColor)),
-          content: Text(
-            "Are you sure you want to logout?",
-            style: TextStyle(color: AppTheme.subtitleColor(dialogContext)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(
-                "Cancel",
-                style: TextStyle(color: AppTheme.subtitleColor(dialogContext)),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                // TODO: hook up real logout logic (FirebaseAuth.instance.signOut(), navigate to LoginScreen, etc.)
-              },
-              child: const Text(
-                "Logout",
-                style: TextStyle(color: AppTheme.error),
-              ),
-            ),
-          ],
-        );
-      },
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: "Logout",
+      message: "Are you sure you want to logout?",
+      confirmText: "Logout",
     );
+    if (confirmed) {
+      // TODO: hook up real logout logic (FirebaseAuth.instance.signOut(), navigate to LoginScreen, etc.)
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-    final musicProvider = context.watch<MusicProvider>();
+    final music = context.watch<MusicProvider>();
     final textColor = AppTheme.text(context);
     final subtitleColor = AppTheme.subtitleColor(context);
-    final cardColor = AppTheme.card(context);
 
-    final totalSongs = musicProvider.songs.length;
-    final likedCount = musicProvider.favoriteSongs.length;
-    final playlistCount =
-        0; // no playlist model yet — placeholder until that feature exists
+    final totalSongs = music.songs.length;
+    final likedCount = music.favoriteSongs.length;
+    const playlistCount = 0; // no playlist model yet — placeholder until that feature exists
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Container(
-        decoration: BoxDecoration(
-          gradient: AppTheme.backgroundGradient(context),
-        ),
+        decoration: BoxDecoration(gradient: AppTheme.backgroundGradient(context)),
         child: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(18),
@@ -162,186 +118,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Center(
                 child: Text(
                   "Darshan Umaraniya",
-                  style: AppTheme.heading.copyWith(
-                    fontSize: 24,
-                    color: textColor,
-                  ),
+                  style: AppTheme.heading.copyWith(fontSize: 24, color: textColor),
                 ),
               ),
               const SizedBox(height: 25),
               Row(
                 children: [
-                  statCard("$totalSongs", "Songs"),
-                  statCard("$likedCount", "Liked"),
-                  statCard("$playlistCount", "Playlists"),
+                  _statCard(context, "$totalSongs", "Songs"),
+                  _statCard(context, "$likedCount", "Liked"),
+                  _statCard(context, "$playlistCount", "Playlists"),
                 ],
               ),
               const SizedBox(height: 25),
-              Text(
-                "Settings",
-                style: AppTheme.subHeading.copyWith(color: textColor),
-              ),
+              Text("Settings", style: AppTheme.subHeading.copyWith(color: textColor)),
               const SizedBox(height: 12),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.favorite,
                 AppTheme.error,
                 "Liked Songs",
                 trailing: likedCount == 0
-                    ? Icon(
-                        Icons.arrow_forward_ios,
-                        color: subtitleColor,
-                        size: 16,
-                      )
+                    ? Icon(Icons.arrow_forward_ios, color: subtitleColor, size: 16)
                     : _CountBadge(count: likedCount),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const FavoriteScreen()),
-                  );
-                },
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoriteScreen())),
               ),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.history,
                 AppTheme.success,
                 "Recently Played",
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const LibraryScreen(startOnRecentlyPlayed: true),
-                    ),
-                  );
-                },
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LibraryScreen(startOnRecentlyPlayed: true)),
+                ),
               ),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.playlist_play,
                 AppTheme.secondary,
                 "My Playlists",
-                onTap: () => _showComingSoon("Playlists"),
+                onTap: () => _showComingSoon(context, "Playlists"),
               ),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.dark_mode,
                 AppTheme.primary,
                 "Dark Mode",
                 trailing: Switch(
                   value: themeProvider.isDarkMode,
                   activeColor: AppTheme.primary,
-                  onChanged: (v) {
-                    context.read<ThemeProvider>().toggleTheme(v);
-                  },
+                  onChanged: (v) => context.read<ThemeProvider>().toggleTheme(v),
                 ),
               ),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.help_outline,
                 AppTheme.accent,
                 "Help & Support",
-                onTap: () => _showComingSoon("Help & Support"),
+                onTap: () => _showComingSoon(context, "Help & Support"),
               ),
-              menuTile(
+              _menuTile(
+                context,
                 Icons.logout,
                 AppTheme.error,
                 "Logout",
-                onTap: _confirmLogout,
+                onTap: () => _confirmLogout(context),
               ),
               const SizedBox(height: 90),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            height: 70,
-            color: cardColor,
-            child: musicProvider.currentSong == null
-                ? ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: AppTheme.primary,
-                      child: Icon(Icons.album, color: Colors.white),
-                    ),
-                    title: Text(
-                      "Nothing playing",
-                      style: TextStyle(color: textColor),
-                    ),
-                    subtitle: Text(
-                      "Tap a song to play",
-                      style: TextStyle(color: subtitleColor),
-                    ),
-                  )
-                : ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: AppTheme.primary,
-                      child: Icon(Icons.album, color: Colors.white),
-                    ),
-                    title: Text(
-                      musicProvider.currentSong!.title,
-                      style: TextStyle(
-                        color: textColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      musicProvider.currentSong!.artist,
-                      style: TextStyle(color: subtitleColor),
-                    ),
-                    trailing: IconButton(
-                      icon: Icon(
-                        musicProvider.isPlaying
-                            ? Icons.pause
-                            : Icons.play_arrow,
-                        color: textColor,
-                      ),
-                      onPressed: musicProvider.togglePlayPause,
-                    ),
-                  ),
-          ),
-          BottomNavigationBar(
-            currentIndex: currentIndex,
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            type: BottomNavigationBarType.fixed,
-            selectedItemColor: AppTheme.primary,
-            unselectedItemColor: subtitleColor,
-            onTap: (i) {
-              if (i == currentIndex) return;
-              if (i == 0) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HomeScreen()),
-                );
-              }
-              if (i == 1) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LibraryScreen()),
-                );
-              }
-              if (i == 2) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FavoriteScreen()),
-                );
-              }
-            },
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.library_music),
-                label: "Library",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.favorite),
-                label: "Favorite",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person),
-                label: "Profile",
-              ),
-            ],
-          ),
-        ],
-      ),
+      bottomNavigationBar: const AppBottomBar(currentIndex: 3),
     );
   }
 }
@@ -360,11 +208,7 @@ class _CountBadge extends StatelessWidget {
       ),
       child: Text(
         "$count",
-        style: const TextStyle(
-          color: AppTheme.primary,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
+        style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 12),
       ),
     );
   }

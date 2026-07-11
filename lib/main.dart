@@ -4,7 +4,6 @@ import 'package:musicapp/Theme/theme_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:musicapp/theme/app_theme.dart';
 import 'package:musicapp/providers/music_provider.dart';
-import 'package:musicapp/Screens/homescreen.dart';
 
 void main() {
   runApp(
