@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:musicapp/Screens/loginscreen.dart';
-import 'package:musicapp/Theme/theme_provider.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
+import 'package:musicapp/Screens/loginscreen.dart';
+import 'package:musicapp/theme/theme_provider.dart';
 import 'package:musicapp/theme/app_theme.dart';
 import 'package:musicapp/providers/music_provider.dart';
+import 'firebase_options.dart';
 
-void main() {
-  runApp(
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  runApp( 
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),

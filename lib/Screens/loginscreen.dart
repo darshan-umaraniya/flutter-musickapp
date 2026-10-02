@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:musicapp/Screens/homescreen.dart';
@@ -7,12 +8,12 @@ import '../widgets/google_signin_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscureText = true;
@@ -30,36 +31,64 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Please enter email and password')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter email and password')),
+      );
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login successful')));
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Login successful')));
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
   }
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      final googleUser = await GoogleSignIn().signIn();
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+
       if (googleUser == null) {
         setState(() => _isLoading = false);
         return;
       }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Signed in as ${googleUser.email}')));
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google Sign-In Successful')),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  InputDecoration _fieldDecoration(BuildContext context, String label, {Widget? suffixIcon}) {
+  InputDecoration _fieldDecoration(
+    BuildContext context,
+    String label, {
+    Widget? suffixIcon,
+  }) {
     final subtitleColor = AppTheme.subtitleColor(context);
     return InputDecoration(
       labelText: label,
@@ -67,8 +96,14 @@ class _LoginScreenState extends State<LoginScreen> {
       filled: true,
       fillColor: AppTheme.card(context),
       suffixIcon: suffixIcon,
-      border: OutlineInputBorder(borderRadius: AppTheme.radius12, borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: AppTheme.radius12, borderSide: BorderSide.none),
+      border: OutlineInputBorder(
+        borderRadius: AppTheme.radius12,
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: AppTheme.radius12,
+        borderSide: BorderSide.none,
+      ),
       focusedBorder: OutlineInputBorder(
         borderRadius: AppTheme.radius12,
         borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
@@ -84,7 +119,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Container(
-        decoration: BoxDecoration(gradient: AppTheme.backgroundGradient(context)),
+        decoration: BoxDecoration(
+          gradient: AppTheme.backgroundGradient(context),
+        ),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -95,13 +132,26 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Container(
                       padding: const EdgeInsets.all(20),
-                      decoration: const BoxDecoration(gradient: AppTheme.albumGradient, shape: BoxShape.circle),
-                      child: const Icon(Icons.music_note, color: Colors.white, size: 56),
+                      decoration: const BoxDecoration(
+                        gradient: AppTheme.albumGradient,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.music_note,
+                        color: Colors.white,
+                        size: 56,
+                      ),
                     ),
                     const SizedBox(height: 12),
-                    Text("Welcome Back", style: AppTheme.heading.copyWith(color: textColor)),
+                    Text(
+                      "Welcome Back",
+                      style: AppTheme.heading.copyWith(color: textColor),
+                    ),
                     const SizedBox(height: 6),
-                    Text("Login to continue listening", style: AppTheme.subtitle.copyWith(color: subtitleColor)),
+                    Text(
+                      "Login to continue listening",
+                      style: AppTheme.subtitle.copyWith(color: subtitleColor),
+                    ),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _emailController,
@@ -118,8 +168,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         context,
                         'Password',
                         suffixIcon: IconButton(
-                          icon: Icon(_obscureText ? Icons.visibility_off : Icons.visibility, color: subtitleColor),
-                          onPressed: () => setState(() => _obscureText = !_obscureText),
+                          icon: Icon(
+                            _obscureText
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: subtitleColor,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscureText = !_obscureText),
                         ),
                       ),
                     ),
@@ -132,29 +188,46 @@ class _LoginScreenState extends State<LoginScreen> {
                           backgroundColor: AppTheme.primary,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14.0),
-                          shape: RoundedRectangleBorder(borderRadius: AppTheme.radius12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: AppTheme.radius12,
+                          ),
                         ),
-                        child: const Text('Login', style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          'Login',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        Expanded(child: Divider(color: subtitleColor.withOpacity(.3))),
+                        Expanded(
+                          child: Divider(color: subtitleColor.withOpacity(.3)),
+                        ),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text("or", style: TextStyle(color: subtitleColor)),
+                          child: Text(
+                            "or",
+                            style: TextStyle(color: subtitleColor),
+                          ),
                         ),
-                        Expanded(child: Divider(color: subtitleColor.withOpacity(.3))),
+                        Expanded(
+                          child: Divider(color: subtitleColor.withOpacity(.3)),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    GoogleSignInButton(isLoading: _isLoading, onPressed: _signInWithGoogle),
+                    GoogleSignInButton(
+                      isLoading: _isLoading,
+                      onPressed: _signInWithGoogle,
+                    ),
                     const SizedBox(height: 20),
                     TextButton(
                       onPressed: () => Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const GoogleSignInScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const GoogleSignInScreen(),
+                        ),
                       ),
                       child: RichText(
                         text: TextSpan(
@@ -163,7 +236,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           children: const [
                             TextSpan(
                               text: "Sign Up",
-                              style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
