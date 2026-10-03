@@ -1,137 +1,182 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:musicapp/Screens/homescreen.dart';
-import 'package:musicapp/Screens/LibraryScreen.dart';
-import 'package:musicapp/Screens/FavoriteScreen.dart';
-import 'package:musicapp/Screens/ProfileScreen.dart';
-import 'package:musicapp/Screens/SongPlayerScreen.dart';
-import '../theme/app_theme.dart';
-import '../providers/music_provider.dart';
+import 'package:musicapp/Theme/app_theme.dart';
 
-/// Combined "now playing" mini-player + bottom navigation bar.
-/// Shared by every top-level tab screen (Home, Library, Favorite, Profile)
-/// so the ~50 lines of nav/mini-player boilerplate only lives in one place.
+import '../Screens/homescreen.dart';
+import '../Screens/LibraryScreen.dart';
+import '../Screens/FavoriteScreen.dart';
+import '../Screens/ProfileScreen.dart';
+
 class AppBottomBar extends StatelessWidget {
   final int currentIndex;
-
-  /// Home screen shows extra transport controls (prev/next) and lets the
-  /// user tap the bar to open the full player. Other tabs keep it minimal.
   final bool expanded;
 
   const AppBottomBar({
     super.key,
     required this.currentIndex,
-    this.expanded = false,
+    this.expanded = true,
   });
 
-  void _goToTab(BuildContext context, int index) {
+  void _navigate(BuildContext context, int index) {
     if (index == currentIndex) return;
-    final screens = <Widget>[
-      const HomeScreen(),
-      const LibraryScreen(),
-      const FavoriteScreen(),
-      const ProfileScreen(),
-    ];
+
+    Widget screen;
+
+    switch (index) {
+      case 0:
+        screen = const HomeScreen();
+        break;
+
+      case 1:
+        screen = const LibraryScreen();
+        break;
+
+      case 2:
+        screen = const FavoriteScreen();
+        break;
+
+      case 3:
+        screen = const ProfileScreen();
+        break;
+
+      default:
+        screen = const HomeScreen();
+    }
+
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => screens[index]),
+      MaterialPageRoute(builder: (_) => screen),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final music = context.watch<MusicProvider>();
-    final song = music.currentSong;
-    final text = AppTheme.text(context);
-    final sub = AppTheme.subtitleColor(context);
-    final card = AppTheme.card(context);
+    final textColor = Theme.of(context).textTheme.bodyLarge?.color;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: (expanded && song != null)
-              ? () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SongPlayerScreen()),
-                  )
-              : null,
-          child: Container(
-            height: 70,
-            color: card,
-            child: ListTile(
-              leading: const CircleAvatar(
-                backgroundColor: AppTheme.primary,
-                child: Icon(Icons.album, color: Colors.white),
+    final inactiveColor = textColor?.withOpacity(.55);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor.withOpacity(.95),
+
+        borderRadius: BorderRadius.circular(20),
+
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.shadow(context).withValues(alpha: .28),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+
+      child: SafeArea(
+        top: false,
+
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+
+            children: [
+              // HOME
+              _navItem(
+                context,
+                index: 0,
+                icon: Icons.home_outlined,
+                activeIcon: Icons.home,
+                label: 'Home',
+                color: textColor,
               ),
-              title: Text(
-                song?.title ?? "Nothing playing",
-                style: TextStyle(
-                  color: text,
-                  fontWeight: song != null ? FontWeight.bold : FontWeight.normal,
-                ),
+
+              // LIBRARY
+              _navItem(
+                context,
+                index: 1,
+                icon: Icons.library_music_outlined,
+                activeIcon: Icons.library_music,
+                label: 'Library',
+                color: textColor,
               ),
-              subtitle: Text(
-                song?.artist ?? "Tap a song to play",
-                style: TextStyle(color: sub),
+
+              // FAVORITES
+              _navItem(
+                context,
+                index: 2,
+                icon: Icons.favorite_border,
+                activeIcon: Icons.favorite,
+                label: 'Liked',
+                color: textColor,
               ),
-              trailing: song == null ? null : _transportControls(music, text),
-            ),
+
+              // PROFILE
+              _navItem(
+                context,
+                index: 3,
+                icon: Icons.person_outline,
+                activeIcon: Icons.person,
+                label: 'Profile',
+                color: textColor,
+              ),
+            ],
           ),
         ),
-        BottomNavigationBar(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          type: BottomNavigationBarType.fixed,
-          currentIndex: currentIndex,
-          selectedItemColor: AppTheme.primary,
-          unselectedItemColor: sub,
-          onTap: (i) => _goToTab(context, i),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.library_music),
-              label: "Library",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.favorite),
-              label: "Favorite",
-            ),
-            BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _transportControls(MusicProvider music, Color iconColor) {
-    if (!expanded) {
-      return IconButton(
-        icon: Icon(
-          music.isPlaying ? Icons.pause : Icons.play_arrow,
-          color: iconColor,
-        ),
-        onPressed: music.togglePlayPause,
-      );
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(Icons.skip_previous, color: iconColor),
-          onPressed: music.playPrevious,
-        ),
-        IconButton(
-          icon: Icon(
-            music.isPlaying ? Icons.pause : Icons.play_arrow,
-            color: iconColor,
+  Widget _navItem(
+    BuildContext context, {
+    required int index,
+    required IconData icon,
+    required IconData activeIcon,
+    required String label,
+    required Color? color,
+  }) {
+    final bool selected = currentIndex == index;
+
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+
+        onTap: () {
+          _navigate(context, index);
+        },
+
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+
+            children: [
+              Icon(
+                selected ? activeIcon : icon,
+
+                color: selected ? AppTheme.primary : color?.withOpacity(.55),
+
+                size: 24,
+              ),
+
+              const SizedBox(height: 3),
+
+              Text(
+                label,
+
+                style: TextStyle(
+                  fontSize: 11,
+
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+
+                  color: selected ? AppTheme.primary : color?.withOpacity(.55),
+                ),
+              ),
+            ],
           ),
-          onPressed: music.togglePlayPause,
         ),
-        IconButton(
-          icon: Icon(Icons.skip_next, color: iconColor),
-          onPressed: music.playNext,
-        ),
-      ],
+      ),
     );
   }
 }

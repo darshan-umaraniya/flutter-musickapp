@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:musicapp/Screens/homescreen.dart';
 import 'package:provider/provider.dart';
 import 'package:musicapp/Screens/loginscreen.dart';
 import 'package:musicapp/theme/theme_provider.dart';
@@ -12,12 +13,14 @@ void main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runApp( 
+  runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => MusicProvider()),
+
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
+
       child: const MyApp(),
     ),
   );
@@ -32,9 +35,13 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+
+      theme: themeProvider.lightTheme,
+
+      darkTheme: themeProvider.darkTheme,
+
       themeMode: themeProvider.themeMode,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+
       home: const LoginScreen(),
     );
   }

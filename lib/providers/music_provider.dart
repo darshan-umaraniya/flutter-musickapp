@@ -1,218 +1,253 @@
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
-import '../models/song.dart';
+import 'package:musicapp/Services/audius_servic.dart';
+
+import '../models/track.dart';
+import '../Services/audio_service.dart';
 
 class MusicProvider extends ChangeNotifier {
-  final List<Song> _songs = [
-    Song(
-      id: '1',
-      title: 'Khwaab Ka Musafir',
-      artist: 'Pixabay Artist',
-      duration: '3:30',
-      genre: 'Pop',
-      url: 'assets/audio/dkfilms-doraemon-hindi-rampb-pop-song-383334.mp3',
-    ),
-    Song(
-      id: '2',
-      title: 'Zaza Zaza',
-      artist: 'For now Unknown',
-      duration: '3:30',
-      genre: 'Rock',
-      url: 'assets/audio/dkfilms-zara-zara-hindi-sad-song-bollywood-385896.mp3',
-    ),
-    Song(
-      id: '3',
-      title: 'Rahul Sapkal',
-      artist: 'For now Unknown',
-      duration: '3:30',
-      genre: 'Rock',
-      url:
-          'assets/audio/rahulsapkal-hindi-love-rap-song-romantic-trap-hip-hop-duet-536831.mp3',
-    ),
-  ];
+  final AudiusService _audiusService = AudiusService();
+  final AudioService _audioService = AudioService.instance;
 
-  List<Song> get songs => _songs;
-  List<String> get genres => ['All', 'Pop', 'Rock', 'Hip Hop', 'Lo-Fi'];
+  // ============================================================
+  // SONGS
+  // ============================================================
 
-  // ---- Genre filter ----
-  String _selectedGenre = 'All';
-  String get selectedGenre => _selectedGenre;
+  List<Track> _apiTracks = [];
 
-  void setGenre(String genre) {
-    _selectedGenre = genre;
-    notifyListeners();
-  }
+  List<Track> get apiTracks => _apiTracks;
 
-  List<Song> get filteredSongs {
-    if (_selectedGenre == 'All') return _songs;
-    return _songs.where((s) => s.genre == _selectedGenre).toList();
-  }
+  // ============================================================
+  // CURRENT TRACK
+  // ============================================================
 
-  // ---- Search ----
-  List<Song> search(String query) {
-    if (query.isEmpty) return [];
-    final q = query.toLowerCase();
-    return _songs
-        .where(
-          (s) =>
-              s.title.toLowerCase().contains(q) ||
-              s.artist.toLowerCase().contains(q),
-        )
-        .toList();
-  }
+  Track? _currentTrack;
 
-  // ---- Recently played ----
-  final List<Song> _recentlyPlayed = [];
-  List<Song> get recentlyPlayed => _recentlyPlayed;
+  Track? get currentTrack => _currentTrack;
 
-  // ---- Real audio playback via just_audio ----
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  AudioPlayer get audioPlayer => _audioPlayer;
+  // ============================================================
+  // LOADING
+  // ============================================================
 
-  Song? _currentSong;
-  Song? get currentSong => _currentSong;
+  bool _isSearching = false;
 
-  bool _isPlaying = false;
-  bool get isPlaying => _isPlaying;
+  bool get isSearching => _isSearching;
 
-  Duration _position = Duration.zero;
-  Duration get position => _position;
+  // ============================================================
+  // ERROR
+  // ============================================================
 
-  Duration _totalDuration = Duration.zero;
-  Duration get totalDuration => _totalDuration;
+  String? _error;
 
-  // ---- Shuffle & Loop ----
-  bool _isShuffling = false;
-  bool _isLooping = false;
+  String? get error => _error;
 
-  bool get isShuffling => _isShuffling;
-  bool get isLooping => _isLooping;
+  // ============================================================
+  // PLAYER
+  // ============================================================
 
-  void toggleShuffle() {
-    _isShuffling = !_isShuffling;
-    // Disable loop when shuffle is enabled (optional UX choice)
-    if (_isShuffling) {
-      _isLooping = false;
-      _audioPlayer.setLoopMode(LoopMode.off);
-    }
-    notifyListeners();
-  }
+  bool get isPlaying => _audioService.playing;
 
-  void toggleLoop() {
-    _isLooping = !_isLooping;
-    // Disable shuffle when loop is enabled
-    if (_isLooping) {
-      _isShuffling = false;
-      _audioPlayer.setLoopMode(LoopMode.one); // loop current song
-    } else {
-      _audioPlayer.setLoopMode(LoopMode.off);
-    }
-    notifyListeners();
-  }
+  Duration get position => _audioService.player.position;
 
-  MusicProvider() {
-    _audioPlayer.playerStateStream.listen((state) {
-      _isPlaying = state.playing;
-      if (state.processingState == ProcessingState.completed) {
-        // Loop is handled by just_audio's LoopMode.one automatically,
-        // so we only call playNext when NOT looping
-        if (!_isLooping) {
-          playNext();
-        }
-      }
-      notifyListeners();
-    });
+  Duration get totalDuration => _audioService.player.duration ?? Duration.zero;
 
-    _audioPlayer.positionStream.listen((pos) {
-      _position = pos;
-      notifyListeners();
-    });
+  // ============================================================
+  // LOAD INITIAL SONGS
+  // ============================================================
 
-    _audioPlayer.durationStream.listen((dur) {
-      _totalDuration = dur ?? Duration.zero;
-      notifyListeners();
-    });
-  }
-
-  Future<void> playSong(Song song) async {
+  Future<void> loadInitialTracks() async {
     try {
-      _currentSong = song;
-      _recentlyPlayed.removeWhere((s) => s.id == song.id);
-      _recentlyPlayed.insert(0, song);
-      if (_recentlyPlayed.length > 10) _recentlyPlayed.removeLast();
+      _isSearching = true;
+      _error = null;
+
       notifyListeners();
 
-      await _audioPlayer.setAsset(song.url);
+      final tracks = await _audiusService.getTrendingTracks();
 
-      // Re-apply loop mode after loading a new asset
-      await _audioPlayer.setLoopMode(_isLooping ? LoopMode.one : LoopMode.off);
+      _apiTracks = tracks;
 
-      await _audioPlayer.play();
+      _isSearching = false;
+
+      notifyListeners();
     } catch (e) {
-      debugPrint('Error playing song: $e');
+      _isSearching = false;
+      _error = e.toString();
+
+      notifyListeners();
     }
   }
 
-  void togglePlayPause() {
-    if (_currentSong == null) return;
-    if (_isPlaying) {
-      _audioPlayer.pause();
-    } else {
-      _audioPlayer.play();
-    }
-  }
+  // ============================================================
+  // SEARCH SONGS
+  // ============================================================
 
-  void seek(Duration position) {
-    _audioPlayer.seek(position);
-  }
+  Future<void> searchAudius(String query) async {
+    final cleanQuery = query.trim();
 
-  void playNext() {
-    if (_currentSong == null || _songs.isEmpty) return;
-
-    if (_isShuffling) {
-      // Pick a random song that is NOT the current one
-      final available = _songs.where((s) => s.id != _currentSong!.id).toList();
-      if (available.isEmpty) return;
-      available.shuffle();
-      playSong(available.first);
-    } else {
-      final idx = _songs.indexWhere((s) => s.id == _currentSong!.id);
-      playSong(_songs[(idx + 1) % _songs.length]);
-    }
-  }
-
-  void playPrevious() {
-    if (_currentSong == null || _songs.isEmpty) return;
-
-    // If more than 3 seconds in, restart current song instead
-    if (_position.inSeconds > 3) {
-      seek(Duration.zero);
+    if (cleanQuery.isEmpty) {
+      await loadInitialTracks();
       return;
     }
 
-    if (_isShuffling) {
-      // On previous with shuffle, just pick another random song
-      final available = _songs.where((s) => s.id != _currentSong!.id).toList();
-      if (available.isEmpty) return;
-      available.shuffle();
-      playSong(available.first);
-    } else {
-      final idx = _songs.indexWhere((s) => s.id == _currentSong!.id);
-      playSong(_songs[(idx - 1 + _songs.length) % _songs.length]);
+    try {
+      _isSearching = true;
+      _error = null;
+
+      notifyListeners();
+
+      final tracks = await _audiusService.searchTracks(cleanQuery);
+
+      _apiTracks = tracks;
+
+      _isSearching = false;
+
+      notifyListeners();
+    } catch (e) {
+      _isSearching = false;
+      _error = e.toString();
+
+      notifyListeners();
     }
   }
 
-  // ---- Favorites ----
-  void toggleFavorite(Song song) {
-    song.isFavorite = !song.isFavorite;
+  // ============================================================
+  // PLAY TRACK
+  // ============================================================
+
+  Future<void> playTrack(Track track) async {
+    try {
+      _error = null;
+
+      _currentTrack = track;
+
+      notifyListeners();
+      addToRecentlyPlayed(track);
+      final streamUrl = _audiusService.getStreamUrl(track.id);
+
+      await _audioService.load(streamUrl);
+
+      await _audioService.play();
+
+      notifyListeners();
+    } catch (e) {
+      _error = 'Unable to play song: $e';
+
+      notifyListeners();
+    }
+  }
+
+  // ============================================================
+  // PLAY / PAUSE
+  // ============================================================
+
+  Future<void> togglePlayPause() async {
+    try {
+      if (_audioService.playing) {
+        await _audioService.pause();
+      } else {
+        await _audioService.play();
+      }
+
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+
+      notifyListeners();
+    }
+  }
+
+  // ============================================================
+  // PAUSE
+  // ============================================================
+
+  Future<void> pause() async {
+    await _audioService.pause();
     notifyListeners();
   }
 
-  List<Song> get favoriteSongs => _songs.where((s) => s.isFavorite).toList();
+  // ============================================================
+  // STOP
+  // ============================================================
 
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
+  Future<void> stop() async {
+    await _audioService.stop();
+
+    _currentTrack = null;
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // USER PLAYLISTS
+  // ============================================================
+
+  final List<String> _userPlaylists = [];
+
+  List<String> get userPlaylists => List.unmodifiable(_userPlaylists);
+
+  // ============================================================
+  // RECENTLY PLAYED
+  // ============================================================
+
+  final List<Track> _recentlyPlayed = [];
+
+  List<Track> get recentlyPlayed => List.unmodifiable(_recentlyPlayed);
+
+  // ============================================================
+  // CREATE PLAYLIST
+  // ============================================================
+
+  void createPlaylist(String name) {
+    final playlistName = name.trim();
+
+    if (playlistName.isEmpty) {
+      return;
+    }
+
+    // Prevent duplicate playlist names
+    if (_userPlaylists.contains(playlistName)) {
+      return;
+    }
+
+    _userPlaylists.add(playlistName);
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // ADD TO RECENTLY PLAYED
+  // ============================================================
+
+  void addToRecentlyPlayed(Track track) {
+    // Remove existing copy first
+    _recentlyPlayed.removeWhere((item) => item.id == track.id);
+
+    // Add newest song at the beginning
+    _recentlyPlayed.insert(0, track);
+
+    // Keep only latest 20 songs
+    if (_recentlyPlayed.length > 20) {
+      _recentlyPlayed.removeLast();
+    }
+
+    notifyListeners();
+  }
+  // ============================================================
+  // SEEK
+  // ============================================================
+
+  Future<void> seek(Duration position) async {
+    await _audioService.seek(position);
+    notifyListeners();
+  }
+
+  // ============================================================
+  // CLEAR
+  // ============================================================
+
+  void clear() {
+    _apiTracks.clear();
+    _error = null;
+
+    notifyListeners();
   }
 }

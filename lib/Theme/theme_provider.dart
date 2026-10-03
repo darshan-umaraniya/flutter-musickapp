@@ -1,42 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:musicapp/theme/app_theme.dart';
 
 class ThemeProvider extends ChangeNotifier {
-  bool _isDarkMode = true; // default matches your current UI
+  ThemeProvider({bool initialDarkMode = true})
+      : _isDarkMode = initialDarkMode;
+
+  bool _isDarkMode;
 
   bool get isDarkMode => _isDarkMode;
 
-  ThemeMode get themeMode => _isDarkMode ? ThemeMode.dark : ThemeMode.light;
+  bool get isLightMode => !_isDarkMode;
+
+  ThemeMode get themeMode =>
+      _isDarkMode ? ThemeMode.dark : ThemeMode.light;
+
+  ThemeData get darkTheme => AppTheme.darkTheme;
+
+  ThemeData get lightTheme => AppTheme.lightTheme;
 
   void toggleTheme(bool value) {
+    if (_isDarkMode == value) return;
+
     _isDarkMode = value;
     notifyListeners();
   }
 
-  static final ThemeData darkTheme = ThemeData(
-    brightness: Brightness.dark,
-    scaffoldBackgroundColor: Colors.black,
-    primaryColor: Colors.deepPurple,
-    colorScheme: const ColorScheme.dark(
-      primary: Colors.deepPurple,
-      secondary: Colors.deepPurpleAccent,
-    ),
-    textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Colors.white),
-      bodyMedium: TextStyle(color: Colors.white),
-    ),
-  );
+  void setDarkMode() {
+    toggleTheme(true);
+  }
 
-  static final ThemeData lightTheme = ThemeData(
-    brightness: Brightness.light,
-    scaffoldBackgroundColor: Colors.white,
-    primaryColor: Colors.deepPurple,
-    colorScheme: const ColorScheme.light(
-      primary: Colors.deepPurple,
-      secondary: Colors.deepPurpleAccent,
-    ),
-    textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Colors.black),
-      bodyMedium: TextStyle(color: Colors.black),
-    ),
-  );
+  void setLightMode() {
+    toggleTheme(false);
+  }
 }
