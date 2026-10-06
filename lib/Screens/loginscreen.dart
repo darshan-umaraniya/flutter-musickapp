@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:musicapp/Screens/AdminDashboard.dart';
 import 'package:musicapp/Screens/homescreen.dart';
 import 'package:musicapp/Screens/GoogleSignInScreen.dart';
 import '../theme/app_theme.dart';
@@ -8,16 +9,24 @@ import '../widgets/google_signin_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
   bool _obscureText = true;
   bool _isLoading = false;
+
+  // Temporary demo credentials
+  static const String normalUserEmail = 'd@gmail.com';
+  static const String normalUserPassword = '12345';
+
+  static const String adminEmail = 'admin@gmail.com';
+  static const String adminPassword = '12345';
 
   @override
   void dispose() {
@@ -32,24 +41,69 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password')),
+        const SnackBar(
+          content: Text('Please enter email and password'),
+        ),
       );
       return;
     }
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Login successful')));
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    // ==============================
+    // ADMIN LOGIN
+    // ==============================
+    if (email == adminEmail && password == adminPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Admin login successful'),
+        ),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const AdminDashboard(),
+        ),
+      );
+
+      return;
+    }
+
+    // ==============================
+    // NORMAL USER LOGIN
+    // ==============================
+    if (email == normalUserEmail && password == normalUserPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Login successful'),
+        ),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+        ),
+      );
+
+      return;
+    }
+
+    // ==============================
+    // INVALID LOGIN
+    // ==============================
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Invalid email or password'),
+      ),
     );
   }
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
+
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignInAccount? googleUser =
+          await GoogleSignIn().signIn();
 
       if (googleUser == null) {
         setState(() => _isLoading = false);
@@ -67,20 +121,32 @@ class _LoginScreenState extends State<LoginScreen> {
       await FirebaseAuth.instance.signInWithCredential(credential);
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Google Sign-In Successful')),
+        const SnackBar(
+          content: Text('Google Sign-In Successful'),
+        ),
       );
+
+      // Google users currently enter the normal user application.
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+        MaterialPageRoute(
+          builder: (context) => const HomeScreen(),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+        ),
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -90,6 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
     Widget? suffixIcon,
   }) {
     final subtitleColor = AppTheme.subtitleColor(context);
+
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(color: subtitleColor),
@@ -106,7 +173,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: AppTheme.radius12,
-        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+        borderSide: const BorderSide(
+          color: AppTheme.primary,
+          width: 1.5,
+        ),
       ),
     );
   }
@@ -142,24 +212,41 @@ class _LoginScreenState extends State<LoginScreen> {
                         size: 56,
                       ),
                     ),
+
                     const SizedBox(height: 12),
+
                     Text(
                       "Welcome Back",
-                      style: AppTheme.heading.copyWith(color: textColor),
+                      style: AppTheme.heading.copyWith(
+                        color: textColor,
+                      ),
                     ),
+
                     const SizedBox(height: 6),
+
                     Text(
                       "Login to continue listening",
-                      style: AppTheme.subtitle.copyWith(color: subtitleColor),
+                      style: AppTheme.subtitle.copyWith(
+                        color: subtitleColor,
+                      ),
                     ),
+
                     const SizedBox(height: 32),
+
+                    // EMAIL
                     TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       style: TextStyle(color: textColor),
-                      decoration: _fieldDecoration(context, 'Email'),
+                      decoration: _fieldDecoration(
+                        context,
+                        'Email',
+                      ),
                     ),
+
                     const SizedBox(height: 16),
+
+                    // PASSWORD
                     TextField(
                       controller: _passwordController,
                       obscureText: _obscureText,
@@ -174,12 +261,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                 : Icons.visibility,
                             color: subtitleColor,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscureText = !_obscureText),
+                          onPressed: () {
+                            setState(() {
+                              _obscureText = !_obscureText;
+                            });
+                          },
                         ),
                       ),
                     ),
+
                     const SizedBox(height: 24),
+
+                    // LOGIN BUTTON
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -187,52 +280,75 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primary,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14.0),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 14.0,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: AppTheme.radius12,
                           ),
                         ),
                         child: const Text(
                           'Login',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
+
                     const SizedBox(height: 16),
+
                     Row(
                       children: [
                         Expanded(
-                          child: Divider(color: subtitleColor.withOpacity(.3)),
+                          child: Divider(
+                            color: subtitleColor.withOpacity(.3),
+                          ),
                         ),
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
                           child: Text(
                             "or",
-                            style: TextStyle(color: subtitleColor),
+                            style: TextStyle(
+                              color: subtitleColor,
+                            ),
                           ),
                         ),
                         Expanded(
-                          child: Divider(color: subtitleColor.withOpacity(.3)),
+                          child: Divider(
+                            color: subtitleColor.withOpacity(.3),
+                          ),
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 16),
+
+                    // GOOGLE SIGN-IN
                     GoogleSignInButton(
                       isLoading: _isLoading,
                       onPressed: _signInWithGoogle,
                     ),
+
                     const SizedBox(height: 20),
+
+                    // SIGN UP
                     TextButton(
                       onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const GoogleSignInScreen(),
+                          builder: (context) =>
+                              const GoogleSignInScreen(),
                         ),
                       ),
                       child: RichText(
                         text: TextSpan(
                           text: "Don't have an account? ",
-                          style: TextStyle(color: subtitleColor),
+                          style: TextStyle(
+                            color: subtitleColor,
+                          ),
                           children: const [
                             TextSpan(
                               text: "Sign Up",

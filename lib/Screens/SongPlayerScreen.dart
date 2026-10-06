@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:musicapp/Services/audio_service.dart';
 import 'package:provider/provider.dart';
@@ -44,6 +45,109 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     final newPosition = currentPosition - const Duration(seconds: 10);
 
     await audio.seek(newPosition < Duration.zero ? Duration.zero : newPosition);
+  }
+
+  Widget _reportButton() {
+    return Expanded(
+      child: OutlinedButton.icon(
+        onPressed: () {
+          _showReportDialog(context);
+        },
+        icon: const Icon(
+          Icons.report_problem_outlined,
+          size: 19,
+          color: Colors.redAccent,
+        ),
+        label: const Text(
+          'Report',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Colors.redAccent,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          side: BorderSide(color: Colors.redAccent.withOpacity(.35)),
+          shape: RoundedRectangleBorder(borderRadius: AppTheme.radius12),
+        ),
+      ),
+    );
+  }
+
+  Widget _actionRow(Color subtitleColor) {
+    return Row(
+      children: [
+        // REPEAT
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _repeat = !_repeat;
+              });
+            },
+            icon: Icon(
+              Icons.repeat_rounded,
+              size: 20,
+              color: _repeat ? AppTheme.primary : subtitleColor,
+            ),
+            label: Text(
+              'Repeat',
+              style: TextStyle(
+                color: _repeat ? AppTheme.primary : subtitleColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              side: BorderSide(
+                color: (_repeat ? AppTheme.primary : subtitleColor).withOpacity(
+                  .25,
+                ),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: AppTheme.radius12),
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // SHUFFLE
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _shuffle = !_shuffle;
+              });
+            },
+            icon: Icon(
+              Icons.shuffle_rounded,
+              size: 20,
+              color: _shuffle ? AppTheme.primary : subtitleColor,
+            ),
+            label: Text(
+              'Shuffle',
+              style: TextStyle(
+                color: _shuffle ? AppTheme.primary : subtitleColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              side: BorderSide(
+                color: (_shuffle ? AppTheme.primary : subtitleColor)
+                    .withOpacity(.25),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: AppTheme.radius12),
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // REPORT
+        _reportButton(),
+      ],
+    );
   }
 
   //Skip 10 SECONDS FORWARD
@@ -198,7 +302,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
                       const SizedBox(height: 28),
 
-                      _secondaryControls(subtitleColor),
+                      _actionRow(subtitleColor),
                     ],
                   ),
                 ),
@@ -728,15 +832,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                       ),
 
                       Text(
-                        '${_currentIndex + 1} / ${widget.tracks.length}',
-                        style: TextStyle(
-                          color: subtitleColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-
-                      Text(
                         '-${_formatDuration(remaining)}',
                         style: TextStyle(
                           color: subtitleColor,
@@ -1040,6 +1135,417 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       onTap: () {
         Navigator.pop(context);
       },
+    );
+  }
+
+  void _showReportDialog(BuildContext context) {
+    final reasonController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    final userId = currentUser?.uid ?? '';
+    final userEmail = currentUser?.email ?? '';
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final textColor = AppTheme.text(context);
+        final subtitleColor = AppTheme.subtitleColor(context);
+
+        return AlertDialog(
+          backgroundColor: AppTheme.card(context),
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+
+          title: Row(
+            children: [
+              Container(
+                height: 42,
+                width: 42,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.report_problem_rounded,
+                  color: Colors.redAccent,
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              Text(
+                'Report Song',
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+
+                Text(
+                  'Tell us what is wrong with this song.',
+                  style: TextStyle(color: subtitleColor, fontSize: 13),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ==========================================
+                // USER INFORMATION
+                // ==========================================
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).scaffoldBackgroundColor.withOpacity(.7),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: subtitleColor.withOpacity(.12)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'User Information',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.person_outline_rounded,
+                            color: subtitleColor,
+                            size: 20,
+                          ),
+
+                          const SizedBox(width: 10),
+
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'User ID',
+                                  style: TextStyle(
+                                    color: subtitleColor,
+                                    fontSize: 11,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 3),
+
+                                Text(
+                                  userId.isEmpty ? 'Not available' : userId,
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.email_outlined,
+                            color: subtitleColor,
+                            size: 20,
+                          ),
+
+                          const SizedBox(width: 10),
+
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Email',
+                                  style: TextStyle(
+                                    color: subtitleColor,
+                                    fontSize: 11,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 3),
+
+                                Text(
+                                  userEmail.isEmpty
+                                      ? 'Not available'
+                                      : userEmail,
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ==========================================
+                // SONG INFORMATION
+                // ==========================================
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppTheme.primary.withOpacity(.15),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Song Information',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Text(
+                        'Song ID: ${_currentTrack.id}',
+                        style: TextStyle(color: subtitleColor, fontSize: 12),
+                      ),
+
+                      const SizedBox(height: 5),
+
+                      Text(
+                        'Song Name: ${_currentTrack.title}',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+
+                      const SizedBox(height: 5),
+
+                      Text(
+                        'Artist: ${_currentTrack.artist}',
+                        style: TextStyle(color: subtitleColor, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // ==========================================
+                // REASON
+                // ==========================================
+                TextField(
+                  controller: reasonController,
+                  style: TextStyle(color: textColor),
+                  decoration: _reportFieldDecoration(
+                    context,
+                    'Reason',
+                    Icons.warning_amber_rounded,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ==========================================
+                // DESCRIPTION
+                // ==========================================
+                TextField(
+                  controller: descriptionController,
+                  maxLines: 4,
+                  style: TextStyle(color: textColor),
+                  decoration: _reportFieldDecoration(
+                    context,
+                    'Description',
+                    Icons.description_outlined,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: subtitleColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+
+            ElevatedButton.icon(
+              onPressed: () {
+                _submitReport(
+                  context: context,
+                  dialogContext: dialogContext,
+                  userId: userId,
+                  userEmail: userEmail,
+                  reason: reasonController.text,
+                  description: descriptionController.text,
+                );
+              },
+              icon: const Icon(Icons.send_rounded, size: 17),
+              label: const Text('Submit Report'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  InputDecoration _reportFieldDecoration(
+    BuildContext context,
+    String label,
+    IconData icon,
+  ) {
+    final subtitleColor = AppTheme.subtitleColor(context);
+
+    return InputDecoration(
+      labelText: label,
+
+      labelStyle: TextStyle(color: subtitleColor),
+
+      prefixIcon: Icon(icon, color: subtitleColor, size: 20),
+
+      filled: true,
+
+      fillColor: Theme.of(context).scaffoldBackgroundColor.withOpacity(.7),
+
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: subtitleColor.withOpacity(.12)),
+      ),
+
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+      ),
+    );
+  }
+
+  void _submitReport({
+    required BuildContext context,
+    required BuildContext dialogContext,
+    required String userId,
+    required String userEmail,
+    required String reason,
+    required String description,
+  }) {
+    // Validate required fields
+    if (userId.trim().isEmpty ||
+        userEmail.trim().isEmpty ||
+        reason.trim().isEmpty ||
+        description.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill all report fields'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      return;
+    }
+
+    // Automatically create the report ID
+    final reportId = 'report_${DateTime.now().millisecondsSinceEpoch}';
+
+    // Automatically get current date
+    final reportDate = DateTime.now();
+
+    // This is the complete report object.
+    final Map<String, dynamic> report = {
+      'id': reportId,
+      'userId': userId.trim(),
+      'userEmail': userEmail.trim(),
+      'type': 'Song Report',
+
+      // Automatically taken from currently playing song
+      'songId': _currentTrack.id,
+      'songName': _currentTrack.title,
+
+      'reason': reason.trim(),
+      'description': description.trim(),
+
+      'date': reportDate.toString(),
+
+      // Every new report starts as Pending
+      'status': 'Pending',
+    };
+
+    // For now, print the report.
+    // Later we will send this object to Firestore.
+    debugPrint('REPORT SUBMITTED: $report');
+
+    Navigator.pop(dialogContext);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Report submitted successfully'),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }

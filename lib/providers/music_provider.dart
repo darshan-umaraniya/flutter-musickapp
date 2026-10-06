@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:musicapp/Services/audius_servic.dart';
-
 import '../models/track.dart';
 import '../Services/audio_service.dart';
 

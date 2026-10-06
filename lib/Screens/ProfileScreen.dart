@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:musicapp/Screens/loginscreen.dart';
 import 'package:provider/provider.dart';
-
 import '../providers/music_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
@@ -696,13 +696,6 @@ class ProfileScreen extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-
-                const SizedBox(height: 3),
-
-                Text(
-                  'Student at Darshan University',
-                  style: TextStyle(color: subtitleColor, fontSize: 11),
-                ),
               ],
             ),
           ),
@@ -849,10 +842,9 @@ class ProfileScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.pop(dialogContext);
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Logout functionality coming soon'),
-                  ),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => LoginScreen()),
                 );
               },
               child: const Text('Logout'),

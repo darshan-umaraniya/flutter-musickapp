@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musicapp/Screens/ArtistsScreen.dart';
 import 'package:musicapp/Screens/SongPlayerScreen.dart';
 import 'package:musicapp/widgets/app_bottom_bar.dart';
 import 'package:provider/provider.dart';
@@ -701,7 +702,22 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
 
-        Icon(Icons.chevron_right, color: subtitleColor),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ArtistsScreen()),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text('View All', style: TextStyle(color: subtitleColor)),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -732,7 +748,10 @@ class _HomeScreenState extends State<HomeScreen> {
               shape: BoxShape.circle,
 
               boxShadow: [
-                BoxShadow(color: AppTheme.shadow(context).withValues(alpha: .28), blurRadius: 12),
+                BoxShadow(
+                  color: AppTheme.shadow(context).withValues(alpha: .28),
+                  blurRadius: 12,
+                ),
               ],
             ),
 
@@ -1378,7 +1397,10 @@ class _HomeScreenState extends State<HomeScreen> {
             borderRadius: BorderRadius.circular(16),
 
             boxShadow: [
-              BoxShadow(color: AppTheme.shadow(context).withValues(alpha: .28), blurRadius: 18),
+              BoxShadow(
+                color: AppTheme.shadow(context).withValues(alpha: .28),
+                blurRadius: 18,
+              ),
             ],
           ),
 
