@@ -1,10 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:musicapp/Services/audio_service.dart';
 import 'package:provider/provider.dart';
 
 import '../models/track.dart';
 import '../providers/music_provider.dart';
+import '../providers/user_provider.dart';
+import '../services/audio_service.dart';
 import '../theme/app_theme.dart';
 
 class SongPlayerScreen extends StatefulWidget {
@@ -27,6 +29,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
   bool _shuffle = false;
   bool _repeat = false;
   bool _isFavorite = false;
+  bool _isFavoriteLoading = false;
 
   String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes;
@@ -36,7 +39,118 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
         '${seconds.toString().padLeft(2, '0')}';
   }
 
-  //Skip 10 SECONDS BACKWARD
+  // ============================================================
+  // FAVORITE - CHECK EXISTING FAVORITE
+  // ============================================================
+
+  // ============================================================
+  // FAVORITE - ADD / REMOVE
+  // ============================================================
+
+  String _favoriteDocumentId(String uid, String songId) {
+    return '${uid}_$songId';
+  }
+
+  Future<void> _checkFavorite(Track track) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final docId = _favoriteDocumentId(user.uid, track.id);
+
+      final doc = await FirebaseFirestore.instance
+          .collection('favorites')
+          .doc(docId)
+          .get()
+          .timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+
+      setState(() {
+        _isFavorite = doc.exists;
+      });
+    } catch (e) {
+      debugPrint('Favorite check error: $e');
+    }
+  }
+
+  Future<void> _toggleFavorite(Track track) async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please log in first.')));
+      return;
+    }
+
+    if (_isFavoriteLoading) return;
+
+    final previousState = _isFavorite;
+    final newState = !previousState;
+
+    final docId = _favoriteDocumentId(user.uid, track.id);
+    final favoriteRef = FirebaseFirestore.instance
+        .collection('favorites')
+        .doc(docId);
+
+    // Update the heart immediately.
+    setState(() {
+      _isFavorite = newState;
+      _isFavoriteLoading = true;
+    });
+
+    try {
+      if (newState) {
+        final userName = context.read<UserProvider>().userName;
+
+        await favoriteRef
+            .set({
+              'songId': track.id,
+              'songName': track.title,
+              'uid': user.uid,
+              'userName': userName,
+              'createdAt': FieldValue.serverTimestamp(),
+            })
+            .timeout(const Duration(seconds: 10));
+      } else {
+        await favoriteRef.delete().timeout(const Duration(seconds: 10));
+      }
+
+      debugPrint(
+        newState
+            ? 'Favorite saved to Firestore'
+            : 'Favorite removed from Firestore',
+      );
+    } catch (e) {
+      debugPrint('Favorite Firestore error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _isFavorite = previousState;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not update favorite. Check your connection or Firestore rules.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFavoriteLoading = false;
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // SKIP 10 SECONDS BACKWARD
+  // ============================================================
+
   Future<void> _skipBackward() async {
     final audio = AudioService.instance;
 
@@ -46,6 +160,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
     await audio.seek(newPosition < Duration.zero ? Duration.zero : newPosition);
   }
+
+  // ============================================================
+  // REPORT BUTTON
+  // ============================================================
 
   Widget _reportButton() {
     return Expanded(
@@ -73,6 +191,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // ACTION ROW
+  // ============================================================
 
   Widget _actionRow(Color subtitleColor) {
     return Row(
@@ -144,17 +266,20 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 8),
 
-        // REPORT
         _reportButton(),
       ],
     );
   }
 
-  //Skip 10 SECONDS FORWARD
+  // ============================================================
+  // SKIP 10 SECONDS FORWARD
+  // ============================================================
+
   Future<void> _skipForward() async {
     final audio = AudioService.instance;
 
     final currentPosition = audio.player.position;
+
     final duration = audio.player.duration ?? Duration.zero;
 
     final newPosition = currentPosition + const Duration(seconds: 10);
@@ -162,13 +287,17 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     await audio.seek(newPosition > duration ? duration : newPosition);
   }
 
+  // ============================================================
+  // INIT STATE
+  // ============================================================
+
   @override
   void initState() {
     super.initState();
 
     _currentIndex = widget.initialIndex;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final music = context.read<MusicProvider>();
 
       if (widget.tracks.isEmpty) return;
@@ -176,16 +305,35 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       final track = widget.tracks[_currentIndex];
 
       if (music.currentTrack?.id != track.id) {
-        music.playTrack(track);
+        await music.playTrack(track);
       }
+
+      // Check Firebase favorite status
+      await _checkFavorite(_currentTrack);
     });
   }
 
+  // ============================================================
+  // CURRENT TRACK
+  // ============================================================
+
   Track get _currentTrack => widget.tracks[_currentIndex];
+
+  // ============================================================
+  // PLAY TRACK
+  // ============================================================
 
   Future<void> _playTrack(Track track) async {
     await context.read<MusicProvider>().playTrack(track);
+
+    // Check favorite whenever
+    // another song starts
+    await _checkFavorite(_currentTrack);
   }
+
+  // ============================================================
+  // NEXT SONG
+  // ============================================================
 
   Future<void> _nextSong() async {
     if (widget.tracks.isEmpty) return;
@@ -208,6 +356,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     await _playTrack(_currentTrack);
   }
 
+  // ============================================================
+  // PREVIOUS SONG
+  // ============================================================
+
   Future<void> _previousSong() async {
     if (widget.tracks.isEmpty) return;
 
@@ -226,31 +378,24 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     await _playTrack(_currentTrack);
   }
 
+  // ============================================================
+  // RESTART
+  // ============================================================
+
   Future<void> _restartSong() async {
     await _playTrack(_currentTrack);
   }
 
-  void _toggleFavorite() {
-    setState(() {
-      _isFavorite = !_isFavorite;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isFavorite ? 'Added to favorites ❤️' : 'Removed from favorites',
-        ),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 1),
-      ),
-    );
-  }
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
     final music = context.watch<MusicProvider>();
 
     final textColor = AppTheme.text(context);
+
     final subtitleColor = AppTheme.subtitleColor(context);
 
     if (widget.tracks.isEmpty) {
@@ -314,9 +459,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // TOP BAR
-  // ------------------------------------------------------------
+  // ============================================================
+
   Widget _circleButton({
     required IconData icon,
     required VoidCallback onTap,
@@ -328,7 +474,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
         width: 42,
         height: 42,
         decoration: BoxDecoration(
-          color: AppTheme.card(context).withOpacity(0.65),
+          color: AppTheme.card(context).withOpacity(.65),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: color, size: 22),
@@ -359,9 +505,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                     letterSpacing: 2.5,
                   ),
                 ),
-
                 const SizedBox(height: 4),
-
                 Text(
                   'Your music',
                   style: TextStyle(
@@ -374,7 +518,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
             ),
           ),
 
-          // CREATE PLAYLIST
           _circleButton(
             icon: Icons.add_rounded,
             onTap: () {
@@ -385,7 +528,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
           const SizedBox(width: 8),
 
-          // MORE OPTIONS
           _circleButton(
             icon: Icons.more_horiz_rounded,
             onTap: () {
@@ -398,6 +540,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
+  // ============================================================
+  // CREATE PLAYLIST
+  // ============================================================
+
   void _showCreatePlaylistDialog(BuildContext context) {
     final controller = TextEditingController();
 
@@ -407,11 +553,9 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
         return AlertDialog(
           backgroundColor: AppTheme.card(context),
           surfaceTintColor: Colors.transparent,
-
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-
           title: Text(
             'Create Playlist',
             style: TextStyle(
@@ -420,7 +564,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
               fontWeight: FontWeight.w800,
             ),
           ),
-
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -432,63 +575,53 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                   fontSize: 13,
                 ),
               ),
-
               const SizedBox(height: 14),
-
               TextField(
                 controller: controller,
                 autofocus: true,
                 textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.done,
-
                 style: TextStyle(color: AppTheme.text(context), fontSize: 15),
-
                 decoration: InputDecoration(
                   hintText: 'Playlist name',
                   hintStyle: TextStyle(color: AppTheme.subtitleColor(context)),
-
                   filled: true,
                   fillColor: Theme.of(
                     context,
                   ).scaffoldBackgroundColor.withOpacity(.7),
-
                   prefixIcon: Icon(
                     Icons.queue_music_rounded,
                     color: AppTheme.primary,
                   ),
-
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 15,
                   ),
-
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
                   ),
-
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
                       color: AppTheme.subtitleColor(context).withOpacity(.12),
                     ),
                   ),
-
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: AppTheme.primary, width: 1.5),
+                    borderSide: const BorderSide(
+                      color: AppTheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
-
                 onSubmitted: (_) {
                   _createPlaylist(context, controller.text);
                 },
               ),
             ],
           ),
-
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-
           actions: [
             TextButton(
               onPressed: () {
@@ -502,27 +635,22 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                 ),
               ),
             ),
-
             ElevatedButton(
               onPressed: () {
                 _createPlaylist(context, controller.text);
               },
-
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 12,
                 ),
-
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-
               child: const Text(
                 'Create',
                 style: TextStyle(fontWeight: FontWeight.w700),
@@ -537,7 +665,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
   void _createPlaylist(BuildContext context, String name) {
     final playlistName = name.trim();
 
-    // Don't allow an empty playlist name
     if (playlistName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -550,12 +677,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       return;
     }
 
-    // Close the dialog
     Navigator.pop(context);
-
-    // For now we are NOT saving anything to a database.
-    // Later this will create the playlist in Firebase/database
-    // and add the current song to it.
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -565,9 +687,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       ),
     );
   }
-  // ------------------------------------------------------------
+
+  // ============================================================
   // NOW PLAYING
-  // ------------------------------------------------------------
+  // ============================================================
 
   Widget _nowPlayingLabel(Color subtitleColor) {
     return Container(
@@ -594,9 +717,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
               ],
             ),
           ),
-
           const SizedBox(width: 8),
-
           Text(
             'PLAYING FROM YOUR MUSIC',
             style: TextStyle(
@@ -611,9 +732,9 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // ALBUM ARTWORK
-  // ------------------------------------------------------------
+  // ============================================================
 
   Widget _albumArtwork(Track track) {
     return Center(
@@ -651,7 +772,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                     )
                   : _defaultArtwork(),
 
-              // Dark gradient overlay
               DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -677,9 +797,9 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // SONG INFORMATION
-  // ------------------------------------------------------------
+  // ============================================================
 
   Widget _songInformation(Track track, Color textColor, Color subtitleColor) {
     return Row(
@@ -700,9 +820,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                   height: 1.15,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               Row(
                 children: [
                   Icon(
@@ -710,9 +828,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                     color: subtitleColor,
                     size: 16,
                   ),
-
                   const SizedBox(width: 5),
-
                   Expanded(
                     child: Text(
                       track.artist,
@@ -733,34 +849,26 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 15),
 
-        Material(
-          color: _isFavorite
-              ? AppTheme.primary.withOpacity(.13)
-              : AppTheme.card(context),
-          shape: const CircleBorder(),
-          child: InkWell(
-            onTap: _toggleFavorite,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 50,
-              height: 50,
-              child: Icon(
-                _isFavorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                color: _isFavorite ? AppTheme.primary : subtitleColor,
-                size: 24,
-              ),
-            ),
+        // ======================================================
+        // FAVORITE BUTTON
+        // ======================================================
+        IconButton(
+          onPressed: () => _toggleFavorite(track),
+          icon: Icon(
+            _isFavorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            color: _isFavorite ? Colors.red : subtitleColor,
+            size: 26,
           ),
         ),
       ],
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // PROGRESS
-  // ------------------------------------------------------------
+  // ============================================================
 
   Widget _progressSection(MusicProvider music, Color subtitleColor) {
     final audio = AudioService.instance;
@@ -775,7 +883,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
           builder: (context, positionSnapshot) {
             Duration position = positionSnapshot.data ?? Duration.zero;
 
-            // Prevent position from going beyond duration
             if (position > duration && duration > Duration.zero) {
               position = duration;
             }
@@ -808,7 +915,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                     max: maxSeconds,
                     activeColor: AppTheme.primary,
                     inactiveColor: subtitleColor.withOpacity(.16),
-
                     onChanged: duration == Duration.zero
                         ? null
                         : (value) {
@@ -816,7 +922,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           },
                   ),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 5),
                   child: Row(
@@ -830,7 +935,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-
                       Text(
                         '-${_formatDuration(remaining)}',
                         style: TextStyle(
@@ -849,9 +953,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
       },
     );
   }
-  // ------------------------------------------------------------
+
+  // ============================================================
   // MAIN CONTROLS
-  // ------------------------------------------------------------
+  // ============================================================
 
   Widget _mainControls(MusicProvider music) {
     final iconColor = Theme.of(context).brightness == Brightness.dark
@@ -861,7 +966,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Previous
         IconButton(
           onPressed: _previousSong,
           icon: Icon(Icons.skip_previous_rounded, color: iconColor, size: 34),
@@ -869,7 +973,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 4),
 
-        // -10 seconds
         IconButton(
           onPressed: _skipBackward,
           icon: const Icon(Icons.replay_10_rounded, size: 30),
@@ -879,7 +982,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 8),
 
-        // Play / Pause
         StreamBuilder<bool>(
           stream: AudioService.instance.player.playingStream,
           initialData: AudioService.instance.player.playing,
@@ -916,7 +1018,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 8),
 
-        // +10 seconds
         IconButton(
           onPressed: _skipForward,
           icon: const Icon(Icons.forward_10_rounded, size: 30),
@@ -926,7 +1027,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
         const SizedBox(width: 4),
 
-        // Next
         IconButton(
           onPressed: _nextSong,
           icon: Icon(Icons.skip_next_rounded, color: iconColor, size: 34),
@@ -935,121 +1035,12 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
-  Widget _controlButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    required double size,
-  }) {
-    return Material(
-      color: AppTheme.card(context).withOpacity(.75),
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 58,
-          height: 58,
-          child: Icon(icon, size: size, color: AppTheme.text(context)),
-        ),
-      ),
-    );
-  }
-
-  // ------------------------------------------------------------
-  // SECONDARY CONTROLS
-  // ------------------------------------------------------------
-
-  Widget _secondaryControls(Color subtitleColor) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _smallControl(
-          icon: Icons.replay_rounded,
-          label: 'Restart',
-          active: false,
-          onTap: _restartSong,
-          subtitleColor: subtitleColor,
-        ),
-
-        const SizedBox(width: 20),
-
-        _smallControl(
-          icon: Icons.shuffle_rounded,
-          label: 'Shuffle',
-          active: _shuffle,
-          onTap: () {
-            setState(() {
-              _shuffle = !_shuffle;
-            });
-          },
-          subtitleColor: subtitleColor,
-        ),
-
-        const SizedBox(width: 20),
-
-        _smallControl(
-          icon: Icons.repeat_rounded,
-          label: 'Repeat',
-          active: _repeat,
-          onTap: () {
-            setState(() {
-              _repeat = !_repeat;
-            });
-          },
-          subtitleColor: subtitleColor,
-        ),
-      ],
-    );
-  }
-
-  Widget _smallControl({
-    required IconData icon,
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-    required Color subtitleColor,
-  }) {
-    final color = active ? AppTheme.primary : subtitleColor;
-
-    return Column(
-      children: [
-        Material(
-          color: active
-              ? AppTheme.primary.withOpacity(.12)
-              : AppTheme.card(context).withOpacity(.65),
-          shape: const CircleBorder(),
-          child: InkWell(
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: Icon(icon, color: color, size: 21),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 7),
-
-        Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ------------------------------------------------------------
+  // ============================================================
   // MORE OPTIONS
-  // ------------------------------------------------------------
+  // ============================================================
 
   void _showMoreOptions(BuildContext context) {
     final textColor = AppTheme.text(context);
-    final subtitleColor = AppTheme.subtitleColor(context);
 
     showModalBottomSheet(
       context: context,
@@ -1068,13 +1059,11 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                 width: 42,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: subtitleColor.withOpacity(.25),
+                  color: AppTheme.subtitleColor(context).withOpacity(.25),
                   borderRadius: BorderRadius.circular(20),
                 ),
               ),
-
               const SizedBox(height: 22),
-
               Text(
                 _currentTrack.title,
                 maxLines: 1,
@@ -1085,21 +1074,17 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 20),
-
               _bottomSheetItem(
                 icon: Icons.playlist_add_rounded,
                 title: 'Add to playlist',
                 color: textColor,
               ),
-
               _bottomSheetItem(
                 icon: Icons.queue_music_rounded,
                 title: 'Add to queue',
                 color: textColor,
               ),
-
               _bottomSheetItem(
                 icon: Icons.share_rounded,
                 title: 'Share song',
@@ -1138,19 +1123,26 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
+  // ============================================================
+  // REPORT DIALOG
+  // ============================================================
+
   void _showReportDialog(BuildContext context) {
     final reasonController = TextEditingController();
+
     final descriptionController = TextEditingController();
 
     final currentUser = FirebaseAuth.instance.currentUser;
 
     final userId = currentUser?.uid ?? '';
+
     final userEmail = currentUser?.email ?? '';
 
     showDialog(
       context: context,
       builder: (dialogContext) {
         final textColor = AppTheme.text(context);
+
         final subtitleColor = AppTheme.subtitleColor(context);
 
         return AlertDialog(
@@ -1159,7 +1151,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-
           title: Row(
             children: [
               Container(
@@ -1174,9 +1165,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                   color: Colors.redAccent,
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Text(
                 'Report Song',
                 style: TextStyle(
@@ -1187,24 +1176,19 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
               ),
             ],
           ),
-
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 8),
-
                 Text(
                   'Tell us what is wrong with this song.',
                   style: TextStyle(color: subtitleColor, fontSize: 13),
                 ),
-
                 const SizedBox(height: 20),
 
-                // ==========================================
                 // USER INFORMATION
-                // ==========================================
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -1226,89 +1210,33 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.person_outline_rounded,
-                            color: subtitleColor,
-                            size: 20,
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'User ID',
-                                  style: TextStyle(
-                                    color: subtitleColor,
-                                    fontSize: 11,
-                                  ),
-                                ),
-
-                                const SizedBox(height: 3),
-
-                                Text(
-                                  userId.isEmpty ? 'Not available' : userId,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'User ID',
+                        style: TextStyle(color: subtitleColor, fontSize: 11),
                       ),
-
+                      const SizedBox(height: 3),
+                      Text(
+                        userId.isEmpty ? 'Not available' : userId,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                       const SizedBox(height: 12),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.email_outlined,
-                            color: subtitleColor,
-                            size: 20,
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Email',
-                                  style: TextStyle(
-                                    color: subtitleColor,
-                                    fontSize: 11,
-                                  ),
-                                ),
-
-                                const SizedBox(height: 3),
-
-                                Text(
-                                  userEmail.isEmpty
-                                      ? 'Not available'
-                                      : userEmail,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'Email',
+                        style: TextStyle(color: subtitleColor, fontSize: 11),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        userEmail.isEmpty ? 'Not available' : userEmail,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -1316,9 +1244,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
                 const SizedBox(height: 12),
 
-                // ==========================================
                 // SONG INFORMATION
-                // ==========================================
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -1340,16 +1266,12 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Text(
                         'Song ID: ${_currentTrack.id}',
                         style: TextStyle(color: subtitleColor, fontSize: 12),
                       ),
-
                       const SizedBox(height: 5),
-
                       Text(
                         'Song Name: ${_currentTrack.title}',
                         style: TextStyle(
@@ -1358,9 +1280,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-
                       const SizedBox(height: 5),
-
                       Text(
                         'Artist: ${_currentTrack.artist}',
                         style: TextStyle(color: subtitleColor, fontSize: 12),
@@ -1371,9 +1291,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
                 const SizedBox(height: 14),
 
-                // ==========================================
-                // REASON
-                // ==========================================
                 TextField(
                   controller: reasonController,
                   style: TextStyle(color: textColor),
@@ -1386,9 +1303,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
                 const SizedBox(height: 12),
 
-                // ==========================================
-                // DESCRIPTION
-                // ==========================================
                 TextField(
                   controller: descriptionController,
                   maxLines: 4,
@@ -1402,9 +1316,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
               ],
             ),
           ),
-
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-
           actions: [
             TextButton(
               onPressed: () {
@@ -1418,7 +1330,6 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                 ),
               ),
             ),
-
             ElevatedButton.icon(
               onPressed: () {
                 _submitReport(
@@ -1451,6 +1362,10 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
+  // ============================================================
+  // REPORT FIELD DECORATION
+  // ============================================================
+
   InputDecoration _reportFieldDecoration(
     BuildContext context,
     String label,
@@ -1460,25 +1375,18 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
 
     return InputDecoration(
       labelText: label,
-
       labelStyle: TextStyle(color: subtitleColor),
-
       prefixIcon: Icon(icon, color: subtitleColor, size: 20),
-
       filled: true,
-
       fillColor: Theme.of(context).scaffoldBackgroundColor.withOpacity(.7),
-
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide.none,
       ),
-
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide(color: subtitleColor.withOpacity(.12)),
       ),
-
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
@@ -1486,66 +1394,68 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     );
   }
 
-  void _submitReport({
+  // ============================================================
+  // SUBMIT REPORT
+  // ============================================================
+
+  Future<void> _submitReport({
     required BuildContext context,
     required BuildContext dialogContext,
     required String userId,
     required String userEmail,
     required String reason,
     required String description,
-  }) {
-    // Validate required fields
-    if (userId.trim().isEmpty ||
-        userEmail.trim().isEmpty ||
-        reason.trim().isEmpty ||
-        description.trim().isEmpty) {
+  }) async {
+    if (reason.trim().isEmpty || description.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please fill all report fields'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        const SnackBar(content: Text('Enter the reason and description.')),
       );
-
       return;
     }
 
-    // Automatically create the report ID
-    final reportId = 'report_${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      final user = FirebaseAuth.instance.currentUser;
 
-    // Automatically get current date
-    final reportDate = DateTime.now();
+      if (user == null) {
+        throw Exception('No user is logged in.');
+      }
 
-    // This is the complete report object.
-    final Map<String, dynamic> report = {
-      'id': reportId,
-      'userId': userId.trim(),
-      'userEmail': userEmail.trim(),
-      'type': 'Song Report',
+      debugPrint('Starting Firestore report write...');
 
-      // Automatically taken from currently playing song
-      'songId': _currentTrack.id,
-      'songName': _currentTrack.title,
+      final report = await FirebaseFirestore.instance
+          .collection('reports')
+          .add({
+            'userId': user.uid,
+            'userName': context.read<UserProvider>().userName,
+            'userEmail': user.email ?? userEmail,
+            'songId': _currentTrack.id,
+            'songName': _currentTrack.title,
+            'artist': _currentTrack.artist,
+            'reason': reason.trim(),
+            'description': description.trim(),
+            'date': FieldValue.serverTimestamp(),
+            'status': 'Pending',
+          })
+          .timeout(const Duration(seconds: 15));
 
-      'reason': reason.trim(),
-      'description': description.trim(),
+      debugPrint('REPORT SAVED SUCCESSFULLY: ${report.id}');
 
-      'date': reportDate.toString(),
+      if (!mounted) return;
 
-      // Every new report starts as Pending
-      'status': 'Pending',
-    };
+      Navigator.of(dialogContext).pop();
 
-    // For now, print the report.
-    // Later we will send this object to Firestore.
-    debugPrint('REPORT SUBMITTED: $report');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report saved to Firestore!')),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('FIRESTORE REPORT ERROR: $e');
+      debugPrintStack(stackTrace: stackTrace);
 
-    Navigator.pop(dialogContext);
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Report submitted successfully'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Report failed: $e')));
+    }
   }
 }

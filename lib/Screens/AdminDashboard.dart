@@ -154,26 +154,6 @@ class AdminDashboard extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 15),
-
-                // ==========================================
-                // MANAGE SONGS
-                // ==========================================
-                _ManagementCard(
-                  context: context,
-                  icon: Icons.library_music_rounded,
-                  title: 'Manage Songs',
-                  subtitle: 'Search and manage songs',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const ManageSongsScreen(),
-                      ),
-                    );
-                  },
-                ),
-
                 const SizedBox(height: 14),
 
                 // ==========================================

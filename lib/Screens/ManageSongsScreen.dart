@@ -1,4 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/track.dart';
+import '../providers/music_provider.dart';
 import '../theme/app_theme.dart';
 
 class ManageSongsScreen extends StatefulWidget {
@@ -11,16 +16,10 @@ class ManageSongsScreen extends StatefulWidget {
 class _ManageSongsScreenState extends State<ManageSongsScreen> {
   final TextEditingController _searchController = TextEditingController();
 
-  // Temporary song data.
-  // Later this will come from Firebase Firestore.
-  final List<Map<String, String>> _songs = [
-    {'id': 'song001', 'title': 'Blinding Lights', 'artist': 'The Weeknd'},
-    {'id': 'song002', 'title': 'Starboy', 'artist': 'The Weeknd'},
-    {'id': 'song003', 'title': 'Shape of You', 'artist': 'Ed Sheeran'},
-    {'id': 'song004', 'title': 'Perfect', 'artist': 'Ed Sheeran'},
-  ];
-
-  Map<String, String>? _foundSong;
+  Track? _foundTrack;
+  bool _isSearching = false;
+  bool _isDeleting = false;
+  String? _message;
 
   @override
   void dispose() {
@@ -28,114 +27,137 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
     super.dispose();
   }
 
-  // ==========================================================
-  // SEARCH SONG BY ID
-  // ==========================================================
-
-  void _searchSong() {
-    final query = _searchController.text.trim().toLowerCase();
+  // SEARCH SONG USING AUDIUS API
+  Future<void> _searchSong() async {
+    final query = _searchController.text.trim();
 
     if (query.isEmpty) {
       setState(() {
-        _foundSong = null;
+        _foundTrack = null;
+        _message = 'Enter a song ID, title, or artist name.';
       });
       return;
     }
 
-    Map<String, String>? result;
+    setState(() {
+      _isSearching = true;
+      _foundTrack = null;
+      _message = null;
+    });
 
-    for (final song in _songs) {
-      if (song['id']!.toLowerCase() == query) {
-        result = song;
-        break;
+    try {
+      final music = context.read<MusicProvider>();
+
+      await music.searchAudius(query);
+
+      if (!mounted) return;
+
+      final normalizedQuery = query.toLowerCase();
+
+      final results = music.apiTracks.where((track) {
+        return track.id.toLowerCase() == normalizedQuery ||
+            track.title.toLowerCase().contains(normalizedQuery) ||
+            track.artist.toLowerCase().contains(normalizedQuery);
+      }).toList();
+
+      setState(() {
+        if (results.isNotEmpty) {
+          _foundTrack = results.first;
+        } else {
+          _message = 'No matching song found.';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _message = 'Unable to fetch songs. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSearching = false);
       }
     }
-
-    setState(() {
-      _foundSong = result;
-    });
   }
 
-  // ==========================================================
-  // DELETE CONFIRMATION
-  // ==========================================================
+  // CONFIRM SONG REMOVAL
+  Future<void> _confirmDeleteSong() async {
+    final track = _foundTrack;
 
-  void _confirmDeleteSong() {
-    if (_foundSong == null) return;
+    if (track == null || _isDeleting) return;
 
-    final song = _foundSong!;
-
-    showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppTheme.card(context),
-
-          title: Text(
-            'Delete Song?',
-            style: TextStyle(
-              color: AppTheme.text(context),
-              fontWeight: FontWeight.bold,
-            ),
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card(context),
+        title: Text(
+          'Remove Song?',
+          style: TextStyle(color: AppTheme.text(context)),
+        ),
+        content: Text(
+          'Remove "${track.title}" by ${track.artist} from Stresa?',
+          style: TextStyle(color: AppTheme.subtitleColor(context)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
           ),
-
-          content: Text(
-            'Are you sure you want to delete "${song['title']}"?',
-            style: TextStyle(color: AppTheme.subtitleColor(context)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
           ),
-
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: AppTheme.subtitleColor(context)),
-              ),
-            ),
-
-            ElevatedButton(
-              onPressed: () {
-                _deleteSong();
-                Navigator.pop(context);
-              },
-
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-              ),
-
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // ==========================================================
-  // DELETE SONG
-  // ==========================================================
-
-  void _deleteSong() {
-    if (_foundSong == null) return;
-
-    final deletedSong = _foundSong!;
-
-    setState(() {
-      _songs.removeWhere((song) => song['id'] == deletedSong['id']);
-
-      _foundSong = null;
-      _searchController.clear();
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${deletedSong['title']} deleted successfully'),
-        behavior: SnackBarBehavior.floating,
+        ],
       ),
     );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+
+    try {
+      // Store a persistent removal record.
+      // Audius owns the original track; this blocks it inside your app.
+      await FirebaseFirestore.instance
+          .collection('removedSongs')
+          .doc(track.id)
+          .set({
+            'songId': track.id,
+            'songName': track.title,
+            'artist': track.artist,
+            'removed': true,
+            'removedAt': FieldValue.serverTimestamp(),
+          });
+
+      if (!mounted) return;
+
+      setState(() {
+        _foundTrack = null;
+        _message = null;
+        _searchController.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${track.title} added to the removal list.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to remove song: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _isDeleting = false);
+      }
+    }
   }
 
   @override
@@ -145,41 +167,29 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-
       body: Container(
         decoration: BoxDecoration(
           gradient: AppTheme.backgroundGradient(context),
         ),
-
         child: SafeArea(
           child: Column(
             children: [
-              // ==================================================
               // HEADER
-              // ==================================================
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 15, 20, 10),
-
+                padding: const EdgeInsets.fromLTRB(16, 12, 20, 16),
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-
+                      onPressed: () => Navigator.pop(context),
                       icon: Icon(
                         Icons.arrow_back_ios_new_rounded,
                         color: textColor,
-                        size: 20,
                       ),
                     ),
-
-                    const SizedBox(width: 5),
-
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-
                         children: [
                           Text(
                             'Manage Songs',
@@ -189,89 +199,53 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-
-                          const SizedBox(height: 3),
-
                           Text(
-                            'Search and manage songs',
+                            'Search and remove Audius songs',
                             style: TextStyle(
                               color: subtitleColor,
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                           ),
                         ],
                       ),
                     ),
-
-                   
                   ],
                 ),
               ),
 
-              const SizedBox(height: 15),
-
-              // ==================================================
-              // SEARCH BAR
-              // ==================================================
+              // SEARCH FIELD
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-
                 child: TextField(
                   controller: _searchController,
-
-                  onSubmitted: (_) {
-                    _searchSong();
-                  },
-
+                  onSubmitted: (_) => _searchSong(),
                   style: TextStyle(color: textColor),
-
                   decoration: InputDecoration(
-                    hintText: 'Search by Song ID',
-
+                    hintText: 'Song ID, title, or artist',
                     hintStyle: TextStyle(color: subtitleColor),
-
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       color: subtitleColor,
                     ),
-
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(
-                              Icons.clear_rounded,
-                              color: subtitleColor,
-                            ),
-
-                            onPressed: () {
-                              _searchController.clear();
-
-                              setState(() {
-                                _foundSong = null;
-                              });
-                            },
-                          )
-                        : null,
-
+                    suffixIcon: IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _foundTrack = null;
+                          _message = null;
+                        });
+                      },
+                      icon: Icon(Icons.clear_rounded, color: subtitleColor),
+                    ),
                     filled: true,
-
                     fillColor: AppTheme.card(context),
-
                     border: OutlineInputBorder(
                       borderRadius: AppTheme.radius12,
                       borderSide: BorderSide.none,
                     ),
-
                     enabledBorder: OutlineInputBorder(
                       borderRadius: AppTheme.radius12,
                       borderSide: BorderSide.none,
-                    ),
-
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: AppTheme.radius12,
-                      borderSide: const BorderSide(
-                        color: AppTheme.primary,
-                        width: 1.5,
-                      ),
                     ),
                   ),
                 ),
@@ -279,28 +253,28 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
 
               const SizedBox(height: 12),
 
-              // ==================================================
               // SEARCH BUTTON
-              // ==================================================
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-
                 child: SizedBox(
                   width: double.infinity,
-
                   child: ElevatedButton.icon(
-                    onPressed: _searchSong,
-
-                    icon: const Icon(Icons.search_rounded),
-
-                    label: const Text('Search Song'),
-
+                    onPressed: _isSearching ? null : _searchSong,
+                    icon: _isSearching
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.search_rounded),
+                    label: Text(_isSearching ? 'Searching...' : 'Search Song'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
-
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: AppTheme.radius12,
                       ),
@@ -309,12 +283,15 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
                 ),
               ),
 
-              const SizedBox(height: 25),
+              const SizedBox(height: 20),
 
-              // ==================================================
               // CONTENT
-              // ==================================================
-              Expanded(child: _buildContent(context, textColor, subtitleColor)),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: _buildContent(textColor, subtitleColor),
+                ),
+              ),
             ],
           ),
         ),
@@ -322,171 +299,105 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
     );
   }
 
-  // ==========================================================
-  // CONTENT
-  // ==========================================================
-
-  Widget _buildContent(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    // No search performed yet
-    if (_searchController.text.trim().isEmpty) {
-      return _emptySearchState(context, textColor, subtitleColor);
+  Widget _buildContent(Color textColor, Color subtitleColor) {
+    if (_isSearching) {
+      return Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
 
-    // Song not found
-    if (_foundSong == null) {
-      return _notFoundState(context, textColor, subtitleColor);
+    if (_foundTrack != null) {
+      return SingleChildScrollView(
+        child: _songCard(_foundTrack!, textColor, subtitleColor),
+      );
     }
 
-    // Song found
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-
-      child: _songDetailsCard(context, textColor, subtitleColor),
-    );
-  }
-
-  // ==========================================================
-  // SONG DETAILS CARD
-  // ==========================================================
-
-  Widget _songDetailsCard(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    final song = _foundSong!;
-
-    return Container(
-      width: double.infinity,
-
-      padding: const EdgeInsets.all(20),
-
-      decoration: BoxDecoration(
-        color: AppTheme.card(context),
-
-        borderRadius: BorderRadius.circular(18),
-
-        border: Border.all(color: subtitleColor.withOpacity(.08)),
-
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.08),
-            blurRadius: 15,
-            offset: const Offset(0, 7),
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _message == null
+                ? Icons.library_music_rounded
+                : Icons.search_off_rounded,
+            size: 55,
+            color: AppTheme.primary,
+          ),
+          const SizedBox(height: 15),
+          Text(
+            _message ?? 'Search for a Song',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Search Audius tracks by ID, title, or artist.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: subtitleColor),
           ),
         ],
       ),
+    );
+  }
 
+  Widget _songCard(Track track, Color textColor, Color subtitleColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.card(context),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: subtitleColor.withOpacity(0.08)),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-
         children: [
-          // ================================================
-          // SONG IMAGE / ICON
-          // ================================================
-          Center(
-            child: Container(
-              height: 110,
-              width: 110,
-
-              decoration: BoxDecoration(
-                gradient: AppTheme.albumGradient,
-                borderRadius: BorderRadius.circular(22),
-              ),
-
-              child: const Icon(
-                Icons.music_note_rounded,
-                color: Colors.white,
-                size: 55,
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: track.artworkUrl.isNotEmpty
+                ? Image.network(
+                    track.artworkUrl,
+                    height: 120,
+                    width: 120,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _defaultArtwork(),
+                  )
+                : _defaultArtwork(),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'SONG DETAILS',
+            style: TextStyle(
+              color: AppTheme.primary,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
             ),
           ),
-
-          const SizedBox(height: 25),
-
-          Center(
-            child: Text(
-              'SONG DETAILS',
-              style: TextStyle(
-                color: AppTheme.primary,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.3,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 22),
-
-          // ================================================
-          // SONG ID
-          // ================================================
-          _detailRow(
-            context: context,
-            icon: Icons.tag_rounded,
-            label: 'Song ID',
-            value: song['id'] ?? '',
-          ),
-
-          const SizedBox(height: 14),
-
-          // ================================================
-          // SONG NAME
-          // ================================================
-          _detailRow(
-            context: context,
-            icon: Icons.music_note_rounded,
-            label: 'Song Name',
-            value: song['title'] ?? '',
-          ),
-
-          const SizedBox(height: 14),
-
-          // ================================================
-          // ARTIST
-          // ================================================
-          _detailRow(
-            context: context,
-            icon: Icons.mic_rounded,
-            label: 'Artist Name',
-            value: song['artist'] ?? '',
-          ),
-
-          const SizedBox(height: 28),
-
-          // ================================================
-          // DIVIDER
-          // ================================================
-          Divider(color: subtitleColor.withOpacity(.12)),
-
           const SizedBox(height: 20),
-
-          // ================================================
-          // DELETE BUTTON
-          // ================================================
+          _detailRow('Song ID', track.id, textColor, subtitleColor),
+          _detailRow('Song Name', track.title, textColor, subtitleColor),
+          _detailRow('Artist Name', track.artist, textColor, subtitleColor),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
-
             child: ElevatedButton.icon(
-              onPressed: _confirmDeleteSong,
-
-              icon: const Icon(Icons.delete_outline_rounded),
-
-              label: const Text(
-                'Delete Song',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-
+              onPressed: _isDeleting ? null : _confirmDeleteSong,
+              icon: _isDeleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.delete_outline_rounded),
+              label: Text(_isDeleting ? 'Removing...' : 'Remove from Stresa'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
                 foregroundColor: Colors.white,
-
                 padding: const EdgeInsets.symmetric(vertical: 15),
-
                 shape: RoundedRectangleBorder(borderRadius: AppTheme.radius12),
               ),
             ),
@@ -496,67 +407,31 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
     );
   }
 
-  // ==========================================================
-  // DETAIL ROW
-  // ==========================================================
-
-  Widget _detailRow({
-    required BuildContext context,
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    final textColor = AppTheme.text(context);
-    final subtitleColor = AppTheme.subtitleColor(context);
-
+  Widget _detailRow(
+    String label,
+    String value,
+    Color textColor,
+    Color subtitleColor,
+  ) {
     return Container(
-      padding: const EdgeInsets.all(14),
-
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(12),
       ),
-
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 40,
-            width: 40,
-
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-
-            child: Icon(icon, color: AppTheme.primary, size: 20),
-          ),
-
-          const SizedBox(width: 13),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(color: subtitleColor, fontSize: 12),
-                ),
-
-                const SizedBox(height: 4),
-
-                Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+          Text(label, style: TextStyle(color: subtitleColor, fontSize: 12)),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -564,116 +439,18 @@ class _ManageSongsScreenState extends State<ManageSongsScreen> {
     );
   }
 
-  // ==========================================================
-  // EMPTY SEARCH STATE
-  // ==========================================================
-
-  Widget _emptySearchState(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-
-          children: [
-            Container(
-              height: 80,
-              width: 80,
-
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(.10),
-                shape: BoxShape.circle,
-              ),
-
-              child: Icon(
-                Icons.search_rounded,
-                color: AppTheme.primary,
-                size: 38,
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Search for a Song',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 7),
-
-            Text(
-              'Enter the Song ID above to view its details.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: subtitleColor, fontSize: 14),
-            ),
-          ],
-        ),
+  Widget _defaultArtwork() {
+    return Container(
+      height: 120,
+      width: 120,
+      decoration: BoxDecoration(
+        gradient: AppTheme.albumGradient,
+        borderRadius: BorderRadius.circular(18),
       ),
-    );
-  }
-
-  // ==========================================================
-  // SONG NOT FOUND STATE
-  // ==========================================================
-
-  Widget _notFoundState(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-
-          children: [
-            Container(
-              height: 80,
-              width: 80,
-
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(.10),
-                shape: BoxShape.circle,
-              ),
-
-              child: const Icon(
-                Icons.search_off_rounded,
-                color: Colors.redAccent,
-                size: 38,
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Song Not Found',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 7),
-
-            Text(
-              'No song exists with the entered Song ID.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: subtitleColor, fontSize: 14),
-            ),
-          ],
-        ),
+      child: const Icon(
+        Icons.music_note_rounded,
+        color: Colors.white,
+        size: 55,
       ),
     );
   }

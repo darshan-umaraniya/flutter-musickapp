@@ -1,23 +1,137 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:musicapp/Screens/FavoriteScreen.dart';
+import 'package:musicapp/Screens/LibraryScreen.dart';
 import 'package:musicapp/Screens/loginscreen.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../providers/music_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_provider.dart';
 import '../widgets/app_bottom_bar.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String _userName = '';
+  String _userId = '';
+  int _likedSongs = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  // =============================================================
+  // LOAD USER DATA
+  // =============================================================
+
+  Future<void> _loadUserData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) {
+        return;
+      }
+
+      _userId = user.uid;
+
+      // ===========================================================
+      // GET USER NAME FROM DATABASE
+      // ===========================================================
+
+      final userSnapshot = await FirebaseDatabase.instance
+          .ref('users')
+          .orderByChild('uid')
+          .equalTo(user.uid)
+          .get();
+
+      String databaseUserName = '';
+
+      if (userSnapshot.exists && userSnapshot.value is Map) {
+        final data = Map<dynamic, dynamic>.from(userSnapshot.value as Map);
+
+        for (final entry in data.entries) {
+          final value = entry.value;
+
+          if (value is Map) {
+            databaseUserName = value['name']?.toString().trim() ?? '';
+
+            if (databaseUserName.isNotEmpty) {
+              break;
+            }
+          }
+        }
+      }
+
+      // ===========================================================
+      // FALLBACK TO FIREBASE AUTH
+      // ===========================================================
+
+      if (databaseUserName.isEmpty) {
+        databaseUserName = user.displayName?.trim() ?? '';
+      }
+
+      // ===========================================================
+      // GET USER'S FAVORITE COUNT
+      // ===========================================================
+
+      final favoriteSnapshot = await FirebaseDatabase.instance
+          .ref('favorites')
+          .orderByChild('userId')
+          .equalTo(user.uid)
+          .get();
+
+      int favoriteCount = 0;
+
+      if (favoriteSnapshot.exists && favoriteSnapshot.value is Map) {
+        final data = Map<dynamic, dynamic>.from(favoriteSnapshot.value as Map);
+
+        favoriteCount = data.length;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _userName = databaseUserName;
+        _likedSongs = favoriteCount;
+      });
+
+      debugPrint('====================================');
+      debugPrint('PROFILE USER');
+      debugPrint('User ID: $_userId');
+      debugPrint('User Name: $_userName');
+      debugPrint('Liked Songs: $_likedSongs');
+      debugPrint('====================================');
+    } catch (e) {
+      debugPrint('Profile user data error: $e');
+    }
+  }
+
+  // =============================================================
+  // BUILD
+  // =============================================================
 
   @override
   Widget build(BuildContext context) {
     final music = context.watch<MusicProvider>();
+
     final themeProvider = context.watch<ThemeProvider>();
 
     final textColor = AppTheme.text(context);
+
     final subtitleColor = AppTheme.subtitleColor(context);
 
     final totalSongs = music.apiTracks.length;
+
     final isDark = themeProvider.isDarkMode;
 
     return Scaffold(
@@ -36,47 +150,55 @@ class ProfileScreen extends StatelessWidget {
 
             child: Column(
               children: [
-                // =====================================================
+                // =================================================
                 // TOP BAR
-                // =====================================================
-                //_topBar(context, textColor),
+                // =================================================
                 const SizedBox(height: 20),
 
-                // =====================================================
+                // =================================================
                 // PROFILE HEADER
-                // =====================================================
-                _profileHeader(context, textColor, subtitleColor),
+                // =================================================
+                _profileHeader(context, textColor, subtitleColor, isDark),
 
                 const SizedBox(height: 28),
 
-                // =====================================================
+                // =================================================
                 // STATISTICS
-                // =====================================================
+                // =================================================
                 _statistics(context, totalSongs, textColor, subtitleColor),
 
                 const SizedBox(height: 34),
 
-                // =====================================================
+                // =================================================
                 // SETTINGS
-                // =====================================================
+                // =================================================
                 _sectionTitle('Settings', textColor),
 
+                // LIKED SONGS
                 _settingTile(
                   context,
                   icon: Icons.favorite_rounded,
                   iconBackground: const Color(0xFF573044),
                   iconColor: const Color(0xFFFF5C68),
                   title: 'Liked Songs',
-                  subtitle: 'Your favorite music',
+                  subtitle: _userName.isNotEmpty
+                      ? '${_userName}\'s favorite music'
+                      : 'Your favorite music',
                   textColor: textColor,
                   subtitleColor: subtitleColor,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Liked Songs coming soon')),
-                    );
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const FavoriteScreen(),
+                      ),
+                    ).then((_) {
+                      _loadUserData();
+                    });
                   },
                 ),
 
+                // RECENTLY PLAYED
                 _settingTile(
                   context,
                   icon: Icons.history_rounded,
@@ -87,14 +209,14 @@ class ProfileScreen extends StatelessWidget {
                   textColor: textColor,
                   subtitleColor: subtitleColor,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Recently Played coming soon'),
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => LibraryScreen()),
                     );
                   },
                 ),
 
+                // MY PLAYLISTS
                 _settingTile(
                   context,
                   icon: Icons.queue_music_rounded,
@@ -105,20 +227,21 @@ class ProfileScreen extends StatelessWidget {
                   textColor: textColor,
                   subtitleColor: subtitleColor,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('My Playlists coming soon')),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => LibraryScreen()),
                     );
                   },
                 ),
 
-                // =====================================================
+                // =================================================
                 // DARK MODE
-                // =====================================================
+                // =================================================
                 _themeTile(context, textColor, subtitleColor),
 
-                // =====================================================
+                // =================================================
                 // HELP
-                // =====================================================
+                // =================================================
                 _settingTile(
                   context,
                   icon: Icons.help_outline_rounded,
@@ -133,9 +256,9 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
 
-                // =====================================================
+                // =================================================
                 // LOGOUT
-                // =====================================================
+                // =================================================
                 _settingTile(
                   context,
                   icon: Icons.logout_rounded,
@@ -151,18 +274,18 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
 
-                const SizedBox(height: 30),
+                const SizedBox(height: 20),
 
-                // =====================================================
+                // =================================================
                 // USER INFORMATION
-                // =====================================================
-                _userInfo(context, textColor, subtitleColor),
+                // =================================================
+                _userInfo(context, textColor, subtitleColor, isDark),
 
                 const SizedBox(height: 20),
 
-                // =====================================================
+                // =================================================
                 // ABOUT
-                // =====================================================
+                // =================================================
                 _aboutText(context, subtitleColor),
 
                 const SizedBox(height: 10),
@@ -180,83 +303,26 @@ class ProfileScreen extends StatelessWidget {
         ),
       ),
 
-      // =============================================================
+      // ==========================================================
       // BOTTOM NAVIGATION
-      // =============================================================
+      // ==========================================================
       bottomNavigationBar: const AppBottomBar(currentIndex: 3, expanded: true),
     );
   }
 
-  // ===============================================================
-  // TOP BAR
-  // ===============================================================
-
-  Widget _topBar(BuildContext context, Color textColor) {
-    return SizedBox(
-      height: 52,
-      child: Row(
-        children: [
-          _circleButton(
-            context,
-            icon: Icons.arrow_back_rounded,
-            color: textColor,
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
-
-          const Spacer(),
-
-          _circleButton(
-            context,
-            icon: Icons.edit_rounded,
-            color: AppTheme.primary,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edit profile coming soon')),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ===============================================================
-  // CIRCLE BUTTON
-  // ===============================================================
-
-  Widget _circleButton(
-    BuildContext context, {
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: AppTheme.card(context).withOpacity(.75),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 46,
-          height: 46,
-          child: Icon(icon, color: color, size: 21),
-        ),
-      ),
-    );
-  }
-
-  // ===============================================================
+  // =============================================================
   // PROFILE HEADER
-  // ===============================================================
+  // =============================================================
+
   Widget _profileHeader(
     BuildContext context,
     Color textColor,
     Color subtitleColor,
+    bool isDark,
   ) {
-    final themeProvider = context.watch<ThemeProvider>();
-    final bool isDark = themeProvider.isDarkMode;
+    final String firstLetter = _userName.isNotEmpty
+        ? _userName.trim().substring(0, 1).toUpperCase()
+        : 'U';
 
     return Column(
       children: [
@@ -271,8 +337,6 @@ class ProfileScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
 
-                // Keep your existing album gradient,
-                // but make it softer in Light Mode.
                 gradient: isDark
                     ? AppTheme.albumGradient
                     : LinearGradient(
@@ -298,19 +362,14 @@ class ProfileScreen extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-
-                  // Dark mode → dark avatar
-                  // Light mode → light avatar
                   color: isDark ? AppTheme.card(context) : Colors.white,
                 ),
 
                 alignment: Alignment.center,
 
                 child: Text(
-                  'D',
+                  firstLetter,
                   style: TextStyle(
-                    // White D on dark avatar
-                    // Purple D on light avatar
                     color: isDark ? Colors.white : AppTheme.primary,
                     fontSize: 46,
                     fontWeight: FontWeight.w800,
@@ -324,7 +383,7 @@ class ProfileScreen extends StatelessWidget {
         const SizedBox(height: 17),
 
         Text(
-          'Darshan Umaraniya',
+          _userName.isNotEmpty ? _userName : 'User',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: textColor,
@@ -336,9 +395,10 @@ class ProfileScreen extends StatelessWidget {
       ],
     );
   }
-  // ===============================================================
+
+  // =============================================================
   // STATISTICS
-  // ===============================================================
+  // =============================================================
 
   Widget _statistics(
     BuildContext context,
@@ -365,7 +425,7 @@ class ProfileScreen extends StatelessWidget {
         Expanded(
           child: _statCard(
             context,
-            value: '0',
+            value: _likedSongs.toString(),
             label: 'Liked',
             icon: Icons.favorite_rounded,
             iconColor: const Color(0xFFFF5964),
@@ -390,6 +450,10 @@ class ProfileScreen extends StatelessWidget {
       ],
     );
   }
+
+  // =============================================================
+  // STAT CARD
+  // =============================================================
 
   Widget _statCard(
     BuildContext context, {
@@ -445,9 +509,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // SECTION TITLE
-  // ===============================================================
+  // =============================================================
 
   Widget _sectionTitle(String title, Color textColor) {
     return Align(
@@ -466,9 +530,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // SETTING TILE
-  // ===============================================================
+  // =============================================================
 
   Widget _settingTile(
     BuildContext context, {
@@ -561,9 +625,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // DARK MODE
-  // ===============================================================
+  // =============================================================
 
   Widget _themeTile(
     BuildContext context,
@@ -651,11 +715,20 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // USER INFORMATION
-  // ===============================================================
+  // =============================================================
 
-  Widget _userInfo(BuildContext context, Color textColor, Color subtitleColor) {
+  Widget _userInfo(
+    BuildContext context,
+    Color textColor,
+    Color subtitleColor,
+    bool isDark,
+  ) {
+    final firstLetter = _userName.isNotEmpty
+        ? _userName.trim().substring(0, 1).toUpperCase()
+        : 'U';
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -672,9 +745,9 @@ class ProfileScreen extends StatelessWidget {
               gradient: AppTheme.albumGradient,
             ),
             alignment: Alignment.center,
-            child: const Text(
-              'D',
-              style: TextStyle(
+            child: Text(
+              firstLetter,
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -689,12 +762,21 @@ class ProfileScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Darshan Umaraniya',
+                  _userName.isNotEmpty ? _userName : 'User',
                   style: TextStyle(
                     color: textColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
+                ),
+
+                const SizedBox(height: 3),
+
+                Text(
+                  _userId.isNotEmpty ? 'ID: $_userId' : 'User information',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: subtitleColor, fontSize: 10),
                 ),
               ],
             ),
@@ -704,9 +786,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // ABOUT
-  // ===============================================================
+  // =============================================================
 
   Widget _aboutText(BuildContext context, Color subtitleColor) {
     return Padding(
@@ -726,9 +808,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // HELP & SUPPORT
-  // ===============================================================
+  // =============================================================
 
   void _showHelp(BuildContext context) {
     showModalBottomSheet(
@@ -736,6 +818,7 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final textColor = AppTheme.text(sheetContext);
+
         final subtitleColor = AppTheme.subtitleColor(sheetContext);
 
         return Container(
@@ -777,14 +860,27 @@ class ProfileScreen extends StatelessWidget {
 
               const SizedBox(height: 8),
 
-              Text(
-                'Need help with the music app? '
-                'Support features will be available soon.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: subtitleColor,
-                  fontSize: 13,
-                  height: 1.4,
+              GestureDetector(
+                onTap: () async {
+                  final Uri emailUri = Uri(
+                    scheme: 'mailto',
+                    path: 'darshanumaraniya.25.mca@iite.indusuni.ac.in',
+                  );
+
+                  if (await canLaunchUrl(emailUri)) {
+                    await launchUrl(emailUri);
+                  }
+                },
+                child: Text(
+                  'Developer Email :- '
+                  'darshanumaraniya.25.mca@iite.indusuni.ac.in',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: subtitleColor,
+                    fontSize: 13,
+                    height: 1.4,
+                    decoration: TextDecoration.underline,
+                  ),
                 ),
               ),
 
@@ -806,12 +902,13 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // ===============================================================
+  // =============================================================
   // LOGOUT
-  // ===============================================================
+  // =============================================================
 
   void _showLogoutDialog(BuildContext context) {
     final textColor = AppTheme.text(context);
+
     final subtitleColor = AppTheme.subtitleColor(context);
 
     showDialog(
@@ -839,12 +936,18 @@ class ProfileScreen extends StatelessWidget {
             ),
 
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(dialogContext);
 
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
+                await FirebaseAuth.instance.signOut();
+
+                if (!context.mounted) {
+                  return;
+                }
+
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
                 );
               },
               child: const Text('Logout'),

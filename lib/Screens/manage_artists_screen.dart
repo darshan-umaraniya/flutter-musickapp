@@ -1,40 +1,28 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/track.dart';
+import '../providers/music_provider.dart';
 import '../theme/app_theme.dart';
 
 class ManageArtistsScreen extends StatefulWidget {
   const ManageArtistsScreen({super.key});
 
   @override
-  State<ManageArtistsScreen> createState() =>
-      _ManageArtistsScreenState();
+  State<ManageArtistsScreen> createState() => _ManageArtistsScreenState();
 }
 
 class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
-  final TextEditingController _searchController =
-      TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
 
-  // Temporary artist data.
-  // Later this will come from Firebase Firestore.
-  final List<Map<String, String>> _artists = [
-    {
-      'id': 'artist001',
-      'name': 'The Weeknd',
-    },
-    {
-      'id': 'artist002',
-      'name': 'Ed Sheeran',
-    },
-    {
-      'id': 'artist003',
-      'name': 'Arijit Singh',
-    },
-    {
-      'id': 'artist004',
-      'name': 'Taylor Swift',
-    },
-  ];
+  List<Track> _artistTracks = [];
+  String? _artistName;
+  String? _message;
 
-  Map<String, String>? _foundArtist;
+  bool _isSearching = false;
+  final Set<String> _deletingSongIds = {};
+  Set<String> _removedSongIds = {};
 
   @override
   void dispose() {
@@ -42,122 +30,166 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
     super.dispose();
   }
 
-  // ==========================================================
-  // SEARCH ARTIST BY ID
-  // ==========================================================
-
-  void _searchArtist() {
-    final query = _searchController.text.trim().toLowerCase();
+  // SEARCH ARTIST THROUGH AUDIUS API
+  Future<void> _searchArtist() async {
+    final query = _searchController.text.trim();
 
     if (query.isEmpty) {
       setState(() {
-        _foundArtist = null;
+        _artistTracks = [];
+        _artistName = null;
+        _message = 'Enter an artist name to search.';
       });
       return;
     }
 
-    Map<String, String>? result;
+    setState(() {
+      _isSearching = true;
+      _artistTracks = [];
+      _artistName = null;
+      _message = null;
+      _removedSongIds = {};
+    });
 
-    for (final artist in _artists) {
-      if (artist['id']!.toLowerCase() == query) {
-        result = artist;
-        break;
+    try {
+      final music = context.read<MusicProvider>();
+
+      // Use the existing Audius search integration.
+      await music.searchAudius(query);
+
+      if (!mounted) return;
+
+      // Read songs already removed by the admin.
+      final removedSnapshot = await FirebaseFirestore.instance
+          .collection('removedSongs')
+          .get();
+
+      final removedIds = removedSnapshot.docs
+          .where((doc) => doc.data()['removed'] == true)
+          .map((doc) => (doc.data()['songId'] ?? doc.id).toString())
+          .toSet();
+
+      // Find tracks belonging to the requested artist.
+      final matchingTracks = music.apiTracks.where((track) {
+        return track.artist.toLowerCase().contains(query.toLowerCase()) &&
+            !removedIds.contains(track.id);
+      }).toList();
+
+      if (!mounted) return;
+
+      if (matchingTracks.isEmpty) {
+        setState(() {
+          _removedSongIds = removedIds;
+          _message =
+              'No available songs found for "$query". Try another artist name.';
+        });
+        return;
+      }
+
+      // Group the results under the artist's actual name.
+      final artistName = matchingTracks.first.artist.trim();
+
+      final artistTracks = matchingTracks.where((track) {
+        return track.artist.trim().toLowerCase() == artistName.toLowerCase();
+      }).toList();
+
+      setState(() {
+        _artistName = artistName;
+        _artistTracks = artistTracks;
+        _removedSongIds = removedIds;
+        _message = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _message = 'Unable to fetch songs. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSearching = false);
       }
     }
-
-    setState(() {
-      _foundArtist = result;
-    });
   }
 
-  // ==========================================================
-  // DELETE CONFIRMATION
-  // ==========================================================
+  // REMOVE ONE SONG ONLY
+  Future<void> _removeSong(Track track) async {
+    if (_deletingSongIds.contains(track.id)) return;
 
-  void _confirmDeleteArtist() {
-    if (_foundArtist == null) return;
-
-    final artist = _foundArtist!;
-
-    showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppTheme.card(context),
-
-          title: Text(
-            'Delete Artist?',
-            style: TextStyle(
-              color: AppTheme.text(context),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          content: Text(
-            'Are you sure you want to delete "${artist['name']}"?',
-            style: TextStyle(
-              color: AppTheme.subtitleColor(context),
-            ),
-          ),
-
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  color: AppTheme.subtitleColor(context),
-                ),
-              ),
-            ),
-
-            ElevatedButton(
-              onPressed: () {
-                _deleteArtist();
-                Navigator.pop(context);
-              },
-
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-              ),
-
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // ==========================================================
-  // DELETE ARTIST
-  // ==========================================================
-
-  void _deleteArtist() {
-    if (_foundArtist == null) return;
-
-    final deletedArtist = _foundArtist!;
-
-    setState(() {
-      _artists.removeWhere(
-        (artist) => artist['id'] == deletedArtist['id'],
-      );
-
-      _foundArtist = null;
-      _searchController.clear();
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${deletedArtist['name']} deleted successfully',
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card(context),
+        title: Text(
+          'Remove Song?',
+          style: TextStyle(color: AppTheme.text(context)),
         ),
-        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Remove "${track.title}" by ${track.artist} from Stresa?',
+          style: TextStyle(color: AppTheme.subtitleColor(context)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
+          ),
+        ],
       ),
     );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingSongIds.add(track.id));
+
+    try {
+      // Use the exact Audius track ID as the Firestore document ID.
+      await FirebaseFirestore.instance
+          .collection('removedSongs')
+          .doc(track.id)
+          .set({
+            'songId': track.id,
+            'songName': track.title,
+            'artist': track.artist,
+            'removed': true,
+            'removedAt': FieldValue.serverTimestamp(),
+          });
+
+      if (!mounted) return;
+
+      setState(() {
+        _removedSongIds.add(track.id);
+        _artistTracks.removeWhere((song) => song.id == track.id);
+
+        if (_artistTracks.isEmpty) {
+          _message = 'No available songs remain for this artist.';
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${track.title}" removed from Stresa.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to remove song: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _deletingSongIds.remove(track.id));
+      }
+    }
   }
 
   @override
@@ -167,64 +199,43 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-
       body: Container(
         decoration: BoxDecoration(
           gradient: AppTheme.backgroundGradient(context),
         ),
-
         child: SafeArea(
           child: Column(
             children: [
-              // ==================================================
               // HEADER
-              // ==================================================
-
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  20,
-                  15,
-                  20,
-                  10,
-                ),
-
+                padding: const EdgeInsets.fromLTRB(16, 12, 20, 16),
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-
+                      onPressed: () => Navigator.pop(context),
                       icon: Icon(
                         Icons.arrow_back_ios_new_rounded,
                         color: textColor,
-                        size: 20,
                       ),
                     ),
-
                     const SizedBox(width: 5),
-
                     Expanded(
                       child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Manage Artists',
+                            'Manage Artists & Songs',
                             style: TextStyle(
                               color: textColor,
-                              fontSize: 23,
+                              fontSize: 21,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-
-                          const SizedBox(height: 3),
-
                           Text(
-                            'Search and manage artists',
+                            'Find artists and manage their songs',
                             style: TextStyle(
                               color: subtitleColor,
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -234,71 +245,41 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
                 ),
               ),
 
-              const SizedBox(height: 15),
-
-              // ==================================================
-              // SEARCH BAR
-              // ==================================================
-
+              // ARTIST SEARCH
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                ),
-
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
                   controller: _searchController,
-
-                  onSubmitted: (_) {
-                    _searchArtist();
-                  },
-
-                  style: TextStyle(
-                    color: textColor,
-                  ),
-
+                  onSubmitted: (_) => _searchArtist(),
+                  style: TextStyle(color: textColor),
                   decoration: InputDecoration(
-                    hintText: 'Search by Artist ID',
-
-                    hintStyle: TextStyle(
-                      color: subtitleColor,
-                    ),
-
+                    hintText: 'Search by artist name',
+                    hintStyle: TextStyle(color: subtitleColor),
                     prefixIcon: Icon(
                       Icons.search_rounded,
                       color: subtitleColor,
                     ),
-
-                    suffixIcon:
-                        _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: Icon(
-                                  Icons.clear_rounded,
-                                  color: subtitleColor,
-                                ),
-                                onPressed: () {
-                                  _searchController.clear();
-
-                                  setState(() {
-                                    _foundArtist = null;
-                                  });
-                                },
-                              )
-                            : null,
-
+                    suffixIcon: IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _artistTracks = [];
+                          _artistName = null;
+                          _message = null;
+                        });
+                      },
+                      icon: Icon(Icons.clear_rounded, color: subtitleColor),
+                    ),
                     filled: true,
-
                     fillColor: AppTheme.card(context),
-
                     border: OutlineInputBorder(
                       borderRadius: AppTheme.radius12,
                       borderSide: BorderSide.none,
                     ),
-
                     enabledBorder: OutlineInputBorder(
                       borderRadius: AppTheme.radius12,
                       borderSide: BorderSide.none,
                     ),
-
                     focusedBorder: OutlineInputBorder(
                       borderRadius: AppTheme.radius12,
                       borderSide: const BorderSide(
@@ -312,37 +293,29 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
 
               const SizedBox(height: 12),
 
-              // ==================================================
-              // SEARCH BUTTON
-              // ==================================================
-
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                ),
-
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: SizedBox(
                   width: double.infinity,
-
                   child: ElevatedButton.icon(
-                    onPressed: _searchArtist,
-
-                    icon: const Icon(
-                      Icons.search_rounded,
+                    onPressed: _isSearching ? null : _searchArtist,
+                    icon: _isSearching
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.search_rounded),
+                    label: Text(
+                      _isSearching ? 'Searching Audius...' : 'Search Artist',
                     ),
-
-                    label: const Text(
-                      'Search Artist',
-                    ),
-
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
-
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 13,
-                      ),
-
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: AppTheme.radius12,
                       ),
@@ -351,19 +324,10 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
                 ),
               ),
 
-              const SizedBox(height: 25),
+              const SizedBox(height: 18),
 
-              // ==================================================
-              // CONTENT
-              // ==================================================
-
-              Expanded(
-                child: _buildContent(
-                  context,
-                  textColor,
-                  subtitleColor,
-                ),
-              ),
+              // ARTIST PROFILE AND SONG LIST
+              Expanded(child: _buildResults(textColor, subtitleColor)),
             ],
           ),
         ),
@@ -371,388 +335,245 @@ class _ManageArtistsScreenState extends State<ManageArtistsScreen> {
     );
   }
 
-  // ==========================================================
-  // CONTENT
-  // ==========================================================
+  Widget _buildResults(Color textColor, Color subtitleColor) {
+    if (_isSearching) {
+      return Center(child: CircularProgressIndicator(color: AppTheme.primary));
+    }
 
-  Widget _buildContent(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    if (_searchController.text.trim().isEmpty) {
-      return _emptySearchState(
-        context,
-        textColor,
-        subtitleColor,
+    if (_artistName == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _message == null
+                    ? Icons.library_music_rounded
+                    : Icons.search_off_rounded,
+                color: AppTheme.primary,
+                size: 54,
+              ),
+              const SizedBox(height: 15),
+              Text(
+                _message ?? 'Search for an Artist',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Search an artist to view their profile and songs.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: subtitleColor),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
-    if (_foundArtist == null) {
-      return _notFoundState(
-        context,
-        textColor,
-        subtitleColor,
-      );
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        30,
-      ),
-
-      child: _artistDetailsCard(
-        context,
-        textColor,
-        subtitleColor,
-      ),
-    );
-  }
-
-  // ==========================================================
-  // ARTIST DETAILS CARD
-  // ==========================================================
-
-  Widget _artistDetailsCard(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    final artist = _foundArtist!;
-
-    return Container(
-      width: double.infinity,
-
-      padding: const EdgeInsets.all(20),
-
-      decoration: BoxDecoration(
-        color: AppTheme.card(context),
-
-        borderRadius: BorderRadius.circular(18),
-
-        border: Border.all(
-          color: subtitleColor.withOpacity(.08),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      children: [
+        // ARTIST PROFILE
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppTheme.card(context),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: subtitleColor.withOpacity(.08)),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child:
+                    _artistTracks.isNotEmpty &&
+                        _artistTracks.first.artworkUrl.isNotEmpty
+                    ? Image.network(
+                        _artistTracks.first.artworkUrl,
+                        height: 82,
+                        width: 82,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _artistPlaceholder(),
+                      )
+                    : _artistPlaceholder(),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ARTIST PROFILE',
+                      style: TextStyle(
+                        color: AppTheme.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      _artistName!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 19,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${_artistTracks.length} available songs',
+                      style: TextStyle(color: subtitleColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
 
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.08),
-            blurRadius: 15,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
+        const SizedBox(height: 22),
 
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-
-        children: [
-          // ==================================================
-          // ARTIST ICON
-          // ==================================================
-
-          Center(
-            child: Container(
-              height: 110,
-              width: 110,
-
-              decoration: BoxDecoration(
-                gradient: AppTheme.albumGradient,
-                borderRadius: BorderRadius.circular(22),
-              ),
-
-              child: const Icon(
-                Icons.mic_rounded,
-                color: Colors.white,
-                size: 55,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 25),
-
-          Center(
-            child: Text(
-              'ARTIST DETAILS',
-              style: TextStyle(
-                color: AppTheme.primary,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.3,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 22),
-
-          // ==================================================
-          // ARTIST ID
-          // ==================================================
-
-          _detailRow(
-            context: context,
-            icon: Icons.tag_rounded,
-            label: 'Artist ID',
-            value: artist['id'] ?? '',
-          ),
-
-          const SizedBox(height: 14),
-
-          // ==================================================
-          // ARTIST NAME
-          // ==================================================
-
-          _detailRow(
-            context: context,
-            icon: Icons.mic_rounded,
-            label: 'Artist Name',
-            value: artist['name'] ?? '',
-          ),
-
-          const SizedBox(height: 28),
-
-          Divider(
-            color: subtitleColor.withOpacity(.12),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ==================================================
-          // DELETE BUTTON
-          // ==================================================
-
-          SizedBox(
-            width: double.infinity,
-
-            child: ElevatedButton.icon(
-              onPressed: _confirmDeleteArtist,
-
-              icon: const Icon(
-                Icons.delete_outline_rounded,
-              ),
-
-              label: const Text(
-                'Delete Artist',
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Artist Songs',
                 style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-
-                padding: const EdgeInsets.symmetric(
-                  vertical: 15,
-                ),
-
-                shape: RoundedRectangleBorder(
-                  borderRadius: AppTheme.radius12,
+                  color: textColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
+            Text(
+              '${_artistTracks.length} songs',
+              style: TextStyle(color: subtitleColor, fontSize: 12),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        if (_artistTracks.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 30),
+            child: Text(
+              _message ?? 'No available songs found.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: subtitleColor),
+            ),
           ),
-        ],
-      ),
-    );
-  }
 
-  // ==========================================================
-  // DETAIL ROW
-  // ==========================================================
+        // INDIVIDUAL SONG ROWS WITH DELETE BUTTONS
+        ..._artistTracks.map((track) {
+          final deleting = _deletingSongIds.contains(track.id);
 
-  Widget _detailRow({
-    required BuildContext context,
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    final textColor = AppTheme.text(context);
-    final subtitleColor = AppTheme.subtitleColor(context);
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-
-      child: Row(
-        children: [
-          Container(
-            height: 40,
-            width: 40,
-
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(11),
             decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(.10),
-              borderRadius: BorderRadius.circular(10),
+              color: AppTheme.card(context),
+              borderRadius: BorderRadius.circular(14),
             ),
-
-            child: Icon(
-              icon,
-              color: AppTheme.primary,
-              size: 20,
-            ),
-          ),
-
-          const SizedBox(width: 13),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-
+            child: Row(
               children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: subtitleColor,
-                    fontSize: 12,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: track.artworkUrl.isNotEmpty
+                      ? Image.network(
+                          track.artworkUrl,
+                          height: 55,
+                          width: 55,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _songPlaceholder(),
+                        )
+                      : _songPlaceholder(),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        track.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: subtitleColor, fontSize: 11),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'ID: ${track.id}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: subtitleColor, fontSize: 10),
+                      ),
+                    ],
                   ),
                 ),
-
-                const SizedBox(height: 4),
-
-                Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
+                const SizedBox(width: 5),
+                IconButton(
+                  tooltip: 'Remove this song',
+                  onPressed: deleting ? null : () => _removeSong(track),
+                  icon: deleting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Colors.redAccent,
+                        ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
+          );
+        }),
+      ],
     );
   }
 
-  // ==========================================================
-  // EMPTY SEARCH STATE
-  // ==========================================================
-
-  Widget _emptySearchState(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-
-          children: [
-            Container(
-              height: 80,
-              width: 80,
-
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(.10),
-                shape: BoxShape.circle,
-              ),
-
-              child: Icon(
-                Icons.mic_none_rounded,
-                color: AppTheme.primary,
-                size: 38,
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Search for an Artist',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 7),
-
-            Text(
-              'Enter the Artist ID above to view details.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: subtitleColor,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
+  Widget _artistPlaceholder() {
+    return Container(
+      height: 82,
+      width: 82,
+      decoration: BoxDecoration(
+        gradient: AppTheme.albumGradient,
+        borderRadius: BorderRadius.circular(18),
       ),
+      child: const Icon(Icons.mic_rounded, color: Colors.white, size: 38),
     );
   }
 
-  // ==========================================================
-  // ARTIST NOT FOUND
-  // ==========================================================
-
-  Widget _notFoundState(
-    BuildContext context,
-    Color textColor,
-    Color subtitleColor,
-  ) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-
-          children: [
-            Container(
-              height: 80,
-              width: 80,
-
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(.10),
-                shape: BoxShape.circle,
-              ),
-
-              child: const Icon(
-                Icons.search_off_rounded,
-                color: Colors.redAccent,
-                size: 38,
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            Text(
-              'Artist Not Found',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 7),
-
-            Text(
-              'No artist exists with the entered Artist ID.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: subtitleColor,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
+  Widget _songPlaceholder() {
+    return Container(
+      height: 55,
+      width: 55,
+      decoration: BoxDecoration(
+        gradient: AppTheme.albumGradient,
+        borderRadius: BorderRadius.circular(10),
       ),
+      child: const Icon(Icons.music_note_rounded, color: Colors.white),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:musicapp/Screens/ArtistsScreen.dart';
 import 'package:musicapp/Screens/SongPlayerScreen.dart';
+import 'package:musicapp/providers/user_provider.dart';
 import 'package:musicapp/widgets/app_bottom_bar.dart';
 import 'package:provider/provider.dart';
 import 'select_context_screen.dart';
@@ -27,6 +28,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<MusicProvider>().loadInitialTracks();
+
+      context.read<UserProvider>().loadUser();
     });
   }
 
@@ -229,13 +232,31 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   Widget _header(BuildContext context, Color textColor, Color subtitleColor) {
+    final userProvider = context.watch<UserProvider>();
+
+    final String name = userProvider.userName.trim();
+
     return Row(
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-
             children: [
+              // Welcome message
+              Text(
+                name.isNotEmpty
+                    ? 'Welcome, ${name.split(' ').first} 👋'
+                    : 'Welcome 👋',
+                style: TextStyle(
+                  color: subtitleColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+
+              const SizedBox(height: 5),
+
+              // Discover Music
               Text(
                 'Discover Music',
                 style: AppTheme.heading.copyWith(color: textColor),
